@@ -194,8 +194,9 @@ const redeemCode = asyncHandler(async (req, res) => {
   // Credit user
   const user = await User.findById(req.user._id);
   const balanceBefore = user.balance;
-  user.balance += bonusCode.amountUSD;
+  user.balance       += bonusCode.amountUSD;
   user.totalEarnings += bonusCode.amountUSD;
+  user.todayEarnings += bonusCode.amountUSD; // ← fix: count redemption as today's earning
   await user.save({ validateBeforeSave: false });
 
   // Mark code as used
@@ -247,8 +248,9 @@ const dailyCheckin = asyncHandler(async (req, res) => {
 
   user.lastCheckin = new Date();
   user.checkinStreak += 1;
-  user.balance += reward;
+  user.balance       += reward;
   user.totalEarnings += reward;
+  user.todayEarnings += reward;   // ← fix: count check-in as today's earning
   await user.save({ validateBeforeSave: false });
 
   await Transaction.create({

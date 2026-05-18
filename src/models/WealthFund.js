@@ -1,32 +1,36 @@
 const mongoose = require('mongoose');
 
-const productSchema = new mongoose.Schema(
+const wealthFundSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
-      trim: true,
     },
+
     image: {
       type: String,
       default: null,
     },
+
     amount: {
       type: Number,
       required: true,
     },
-    cycleDays: {
-      type: Number,
-      required: true,
-    },
-    dailyIncome: {
+
+    maturityAmount: {
       type: Number,
       required: true,
     },
 
-    vipLevel: {
+    durationType: {
+      type: String,
+      enum: ['monthly', 'yearly'],
+      required: true,
+    },
+
+    durationDays: {
       type: Number,
-      required: true, // VIP1, VIP2, VIP3
+      required: true, // 30 or 365
     },
 
     maxUnits: {
@@ -52,10 +56,10 @@ const productSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-productSchema.virtual('totalReturn').get(function () {
-  return this.dailyIncome * this.cycleDays;
+wealthFundSchema.virtual('profit').get(function () {
+  return this.maturityAmount - this.amount;
 });
 
-productSchema.set('toJSON', { virtuals: true });
+wealthFundSchema.set('toJSON', { virtuals: true });
 
-module.exports = mongoose.model('Product', productSchema);
+module.exports = mongoose.model('WealthFund', wealthFundSchema);

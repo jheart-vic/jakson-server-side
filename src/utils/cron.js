@@ -5,9 +5,9 @@ const Transaction = require('../models/Transaction');
 
 /**
  * Runs daily at midnight to:
- * 1. Credit each active investment's daily income to the user
+ * 1. Credit each active investment's daily income (Mon-Fri only)
  * 2. Mark investments as completed if expired
- * 3. Reset today/yesterday earnings tracking
+ * 3. Reset today/yesterday earnings tracking (every day)
  */
 const startDailyIncomeCron = () => {
   const schedule = process.env.CRON_DAILY_INCOME || '0 0 * * *';
@@ -17,91 +17,101 @@ const startDailyIncomeCron = () => {
 
     try {
       const now = new Date();
-
-      // 1. Find all in-progress investments
-      const investments = await UserInvestment.find({ status: 'in_progress' });
+      const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
+      const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
 
       let credited = 0;
       let completed = 0;
 
-      for (const investment of investments) {
-        // Skip if income already given today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (investment.lastIncomeDate) {
-          const lastDate = new Date(investment.lastIncomeDate);
-          lastDate.setHours(0, 0, 0, 0);
-          if (lastDate.getTime() === today.getTime()) continue;
+      // 1. Process investments only on weekdays
+      if (!isWeekend) {
+        const investments = await UserInvestment.find({ status: 'in_progress' });
+
+        for (const investment of investments) {
+          // Skip if income already given today
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          if (investment.lastIncomeDate) {
+            const lastDate = new Date(investment.lastIncomeDate);
+            lastDate.setHours(0, 0, 0, 0);
+            if (lastDate.getTime() === today.getTime()) continue;
+          }
+
+          const user = await User.findById(investment.user);
+          if (!user || !user.isActive) continue;
+
+          const income = investment.dailyIncome;
+          const balanceBefore = user.balance;
+
+          // Credit income
+          user.balance += income;
+          user.totalEarnings += income;
+          user.todayEarnings += income;
+          investment.totalEarned += income;
+          investment.daysElapsed += 1;
+          investment.lastIncomeDate = now;
+
+          // Check if expired
+          if (now >= investment.expirationDate) {
+            investment.status = 'completed';
+            completed++;
+          }
+
+          await user.save({ validateBeforeSave: false });
+          await investment.save();
+
+          // Record transaction
+          await Transaction.create({
+            user: investment.user,
+            type: 'in',
+            category: 'daily_income',
+            amountUSD: income,
+            balanceBefore,
+            balanceAfter: user.balance,
+            description: `Daily income from ${investment.productSnapshot.name}`,
+            refModel: 'UserInvestment',
+            refId: investment._id,
+          });
+
+          // Pay referral commissions (3%, 2%, 1%)
+          await payReferralCommissions(investment.user, income);
+
+          credited++;
         }
 
-        const user = await User.findById(investment.user);
-        if (!user || !user.isActive) continue;
-
-        const income = investment.dailyIncome;
-        const balanceBefore = user.balance;
-
-        // Credit income
-        user.balance += income;
-        user.totalEarnings += income;
-        user.todayEarnings += income;
-        investment.totalEarned += income;
-        investment.daysElapsed += 1;
-        investment.lastIncomeDate = now;
-
-        // Check if expired
-        if (now >= investment.expirationDate) {
-          investment.status = 'completed';
-          completed++;
-        }
-
-        await user.save({ validateBeforeSave: false });
-        await investment.save();
-
-        // Record transaction
-        await Transaction.create({
-          user: investment.user,
-          type: 'in',
-          category: 'daily_income',
-          amountUSD: income,
-          balanceBefore,
-          balanceAfter: user.balance,
-          description: `Daily income from ${investment.productSnapshot.name}`,
-          refModel: 'UserInvestment',
-          refId: investment._id,
-        });
-
-        // Referral commissions
-        await payReferralCommissions(investment.user, income);
-
-        credited++;
+        console.log(`✅ Daily income credited: ${credited} investments, Completed: ${completed}`);
+      } else {
+        console.log(`🌙 Weekend (${now.toDateString()}) – skipping income distribution.`);
       }
 
-      // 2. Reset today → yesterday for all users
+      // 2. Reset today → yesterday for all users (runs every day regardless of weekend)
       await User.updateMany(
         {},
         [
           { $set: { yesterdayEarnings: '$todayEarnings', todayEarnings: 0 } },
         ]
       );
+      console.log(`🔄 Reset todayEarnings → yesterdayEarnings for all users`);
 
-      console.log(`✅ Daily income cron done. Credited: ${credited}, Completed: ${completed}`);
     } catch (err) {
       console.error('❌ Daily income cron error:', err);
     }
   });
 
-  console.log('⏰ Daily income cron scheduled');
+  console.log('⏰ Daily income cron scheduled (Mon-Fri only for earnings, reset runs daily)');
 };
 
 /**
- * Pay referral commissions up 3 tiers
- * Tier 1: 8%, Tier 2: 3%, Tier 3: 1%
+ * Pay referral commissions up to 3 tiers
+ * Level 1 (direct): 3%
+ * Level 2: 2%
+ * Level 3: 1%
  */
 const payReferralCommissions = async (userId, incomeAmount) => {
   const TIERS = [
-    { percent: 0.08 },
-    { percent: 0.03 },
-    { percent: 0.01 },
+    { percent: 0.03 }, // 3% for level 1
+    { percent: 0.02 }, // 2% for level 2
+    { percent: 0.01 }, // 1% for level 3
   ];
 
   let currentUserId = userId;
@@ -114,6 +124,8 @@ const payReferralCommissions = async (userId, incomeAmount) => {
     if (!referrer || !referrer.isActive) break;
 
     const commission = +(incomeAmount * tier.percent).toFixed(6);
+    if (commission <= 0) continue; // skip zero or negative
+
     const balanceBefore = referrer.balance;
 
     referrer.balance += commission;
@@ -128,7 +140,7 @@ const payReferralCommissions = async (userId, incomeAmount) => {
       amountUSD: commission,
       balanceBefore,
       balanceAfter: referrer.balance,
-      description: `Referral commission (${(tier.percent * 100).toFixed(0)}%)`,
+      description: `Referral commission (${(tier.percent * 100).toFixed(0)}%) from daily income`,
     });
 
     currentUserId = referrer._id;

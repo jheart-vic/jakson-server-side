@@ -11,8 +11,9 @@ const { sendSuccess, sendError, paginate } = require('../utils/helpers');
 const createDeposit = asyncHandler(async (req, res) => {
   const { amountUSD } = req.body;
 
-  if (!amountUSD || amountUSD < 5) {
-    return sendError(res, 'Minimum deposit amount is $5.00');
+  const minDeposit = (await AppSettings.get('min_deposit')) || 11.5;
+  if (!amountUSD || amountUSD < minDeposit) {
+    return sendError(res, `Minimum deposit amount is $${minDeposit.toFixed(2)}`);
   }
 
   // Get current exchange rate from settings

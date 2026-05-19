@@ -16,10 +16,10 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     return sendError(res, 'Amount and withdrawal password are required');
   }
 
-  if (amountUSD < 2) {
-    return sendError(res, 'Minimum withdrawal amount is $2.00');
-  }
-
+    const minWithdrawal = (await AppSettings.get('min_withdrawal')) || 11.5;
+    if (amountUSD < minWithdrawal) {
+      return sendError(res, `Minimum withdrawal amount is $${minWithdrawal.toFixed(2)}`);
+    }
   // Verify withdrawal password
   const user = await User.findById(req.user._id).select('+withdrawPassword');
   if (!user.withdrawPassword) {
@@ -60,7 +60,10 @@ const createWithdrawal = asyncHandler(async (req, res) => {
   }
 
   // Calculate fee
-  const { feePercent, feeAmount, netAmount } = calcWithdrawalFee(amountUSD);
+  const feeLow = (await AppSettings.get('withdrawal_fee_low')) || 10;
+  const feeHigh = (await AppSettings.get('withdrawal_fee_high')) || 20;
+  const threshold = (await AppSettings.get('withdrawal_fee_threshold')) || 500;
+  const { feePercent, feeAmount, netAmount } = calcWithdrawalFee(amountUSD, feeLow, feeHigh, threshold);
 
   // Get exchange rate
   const rate = (await AppSettings.get('usd_to_ngn_rate')) || 1365;

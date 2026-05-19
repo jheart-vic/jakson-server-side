@@ -1,5 +1,5 @@
 {
-  "name": "jakson-solar-backend",
+  "name": "Luminos-Energy-backend",
   "version": "1.0.0",
   "description": "Jakson Solar Investment Platform - Backend API",
   "main": "src/server.js",

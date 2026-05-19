@@ -21,8 +21,8 @@ const generateJWT = (id) => {
 };
 
 // Calculate withdrawal fee
-const calcWithdrawalFee = (amountUSD) => {
-  const feePercent = amountUSD >= 500 ? 20 : 10;
+const calcWithdrawalFee = (amountUSD, feeLow = 10, feeHigh = 20, threshold = 500) => {
+  const feePercent = amountUSD >= threshold ? feeHigh : feeLow;
   const feeAmount = +(amountUSD * (feePercent / 100)).toFixed(4);
   const netAmount = +(amountUSD - feeAmount).toFixed(4);
   return { feePercent, feeAmount, netAmount };

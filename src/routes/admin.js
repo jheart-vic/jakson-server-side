@@ -3,11 +3,12 @@ const router = express.Router();
 
 const { protect, adminOnly, superAdminOnly } = require('../middleware/auth');
 const { approveDeposit, rejectDeposit, getAllDeposits } = require('../controllers/depositController');
-const { approveWithdrawal, rejectWithdrawal } = require('../controllers/withdrawController');
+const { approveWithdrawal, rejectWithdrawal, getAllWithdrawals } = require('../controllers/withdrawController');
 const {
   createProduct, getAllProducts, updateProduct, deleteProduct,
   getAllUsers, getUserDetail, suspendUser, unsuspendUser, loginAsUser,
   creditUserWallet, deductUserWallet, getDashboard, assignRole,
+  createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund
 } = require('../controllers/adminController');
 const AppSettings = require('../models/AppSettings');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -46,13 +47,30 @@ router.put('/deposits/:id/approve',  approveDeposit);
 router.put('/deposits/:id/reject',   rejectDeposit);
 
 // ── Withdrawal Management ─────────────────────────────────
+router.get('/withdrawals',  getAllWithdrawals)
 router.put('/withdraw/:id/approve',  approveWithdrawal);
 router.put('/withdraw/:id/reject',   rejectWithdrawal);
 
+router.post('/wealth-funds', createWealthFund)
+router.get('/wealth-funds', getAllWealthFunds)
+router.put('/wealth-funds/:id', updateWealthFund)
+router.delete('/wealth-funds/:id', deleteWealthFund)
+
 // ── App Settings ──────────────────────────────────────────
 router.get('/settings', asyncHandler(async (req, res) => {
-  const settings = await AppSettings.find({});
-  return sendSuccess(res, { settings });
+  const settingsArray = await AppSettings.find({});
+  const settings = {};
+  settingsArray.forEach(s => { settings[s.key] = s.value; });
+  // Provide defaults if not set
+  const defaults = {
+    usd_to_ngn_rate: 1365,
+    payment_bank_account: { bankName: '', accountNumber: '', accountName: '' },
+    withdrawal_fee_threshold: 500,
+    withdrawal_fee_below: 10,
+    withdrawal_fee_above: 20,
+  };
+  Object.assign(settings, defaults, settings);
+  return sendSuccess(res, settings);
 }));
 
 router.put('/settings', asyncHandler(async (req, res) => {

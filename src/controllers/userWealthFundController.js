@@ -8,7 +8,7 @@ const { sendSuccess, sendError, paginate } = require('../utils/helpers')
 
 // @desc Get all active wealth funds
 const getWealthFunds = asyncHandler(async (req, res) => {
-    const funds = await WealthFund.find({ isActive: true }).sort({
+    const funds = await WealthFund.find().sort({
         sortOrder: 1,
         amount: 1,
     })

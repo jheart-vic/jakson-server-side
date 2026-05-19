@@ -8,7 +8,7 @@ const {
   buyWealthFund,
   claimWealthFund,
   getMyWealthFunds,
-} = require('../controllers/userwealthFundController');
+} = require('../controllers/userWealthFundController');
 
 router.get('/', protect, getWealthFunds);
 

@@ -558,6 +558,117 @@ const assignRole = asyncHandler(async (req, res) => {
         `Role updated to '${role}' successfully`,
     )
 })
+
+
+// ============================================================
+// WEALTH FUND MANAGEMENT (Admin)
+// ============================================================
+
+const WealthFund = require('../models/WealthFund')
+
+// @desc    Create a new wealth fund
+// @route   POST /api/admin/wealth-funds
+// @access  Admin
+const createWealthFund = asyncHandler(async (req, res) => {
+  const {
+    name,
+    image,
+    amount,
+    maturityAmount,
+    durationType,
+    durationDays,
+    maxUnits,
+    availableUnits,
+    isActive,
+    sortOrder,
+  } = req.body
+
+  if (!name || amount == null || maturityAmount == null || !durationType || !durationDays) {
+    return sendError(res, 'Missing required fields: name, amount, maturityAmount, durationType, durationDays')
+  }
+
+  const wealthFund = await WealthFund.create({
+    name,
+    image: image || null,
+    amount,
+    maturityAmount,
+    durationType,
+    durationDays,
+    maxUnits: maxUnits ?? 1,
+    availableUnits: availableUnits ?? 999999,
+    isActive: isActive ?? true,
+    sortOrder: sortOrder ?? 0,
+  })
+
+  return sendSuccess(res, { wealthFund }, 'Wealth fund created successfully', 201)
+})
+
+// @desc    Get all wealth funds (admin) – includes inactive
+// @route   GET /api/admin/wealth-funds
+// @access  Admin
+const getAllWealthFunds = asyncHandler(async (req, res) => {
+  const { status } = req.query // ?status=active | inactive | all
+  const filter = {}
+  if (status === 'active') filter.isActive = true
+  if (status === 'inactive') filter.isActive = false
+
+  const funds = await WealthFund.find(filter).sort({ sortOrder: 1, amount: 1 })
+  return sendSuccess(res, { funds, total: funds.length })
+})
+
+// @desc    Update a wealth fund
+// @route   PUT /api/admin/wealth-funds/:id
+// @access  Admin
+const updateWealthFund = asyncHandler(async (req, res) => {
+  const allowed = [
+    'name',
+    'image',
+    'amount',
+    'maturityAmount',
+    'durationType',
+    'durationDays',
+    'maxUnits',
+    'availableUnits',
+    'isActive',
+    'sortOrder',
+  ]
+
+  const updates = {}
+  allowed.forEach(field => {
+    if (req.body[field] !== undefined) updates[field] = req.body[field]
+  })
+
+  if (Object.keys(updates).length === 0) {
+    return sendError(res, 'No valid fields provided to update')
+  }
+
+  const fund = await WealthFund.findByIdAndUpdate(
+    req.params.id,
+    { $set: updates },
+    { new: true, runValidators: true }
+  )
+
+  if (!fund) return sendError(res, 'Wealth fund not found', 404)
+
+  return sendSuccess(res, { wealthFund: fund }, 'Wealth fund updated successfully')
+})
+
+// @desc    Soft delete a wealth fund (set isActive = false)
+// @route   DELETE /api/admin/wealth-funds/:id
+// @access  Admin
+const deleteWealthFund = asyncHandler(async (req, res) => {
+  const fund = await WealthFund.findByIdAndUpdate(
+    req.params.id,
+    { isActive: false },
+    { new: true }
+  )
+
+  if (!fund) return sendError(res, 'Wealth fund not found', 404)
+
+  return sendSuccess(res, { wealthFund: fund }, 'Wealth fund deactivated successfully')
+})
+
+// (Optional) Hard delete – if needed, but soft delete is safer
 module.exports = {
     // Products
     createProduct,
@@ -577,4 +688,9 @@ module.exports = {
     getDashboard,
     // Roles
     assignRole,
+
+  createWealthFund,
+  getAllWealthFunds,
+  updateWealthFund,
+  deleteWealthFund,
 }

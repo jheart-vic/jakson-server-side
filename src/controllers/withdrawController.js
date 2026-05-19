@@ -123,6 +123,29 @@ const createWithdrawal = asyncHandler(async (req, res) => {
   );
 });
 
+// @desc    Admin: Get all withdrawals
+// @route   GET /api/admin/withdrawals
+// @access  Admin
+const getAllWithdrawals = asyncHandler(async (req, res) => {
+  const { status, page, limit } = req.query
+  const { skip, limit: lim, page: pg } = paginate(page, limit)
+  const filter = status ? { status } : {}
+
+  const [withdrawals, total] = await Promise.all([
+    Withdrawal.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(lim)
+      .populate('user', 'phone'),
+    Withdrawal.countDocuments(filter),
+  ])
+
+  return sendSuccess(res, {
+    withdrawals,
+    pagination: { total, page: pg, limit: lim, pages: Math.ceil(total / lim) },
+  })
+})
+
 // @desc    Get withdrawal history
 // @route   GET /api/withdraw/log
 // @access  Private
@@ -199,4 +222,4 @@ const rejectWithdrawal = asyncHandler(async (req, res) => {
   return sendSuccess(res, { withdrawal }, 'Withdrawal rejected and balance refunded');
 });
 
-module.exports = { createWithdrawal, getWithdrawalLog, approveWithdrawal, rejectWithdrawal };
+module.exports = { createWithdrawal, getWithdrawalLog, approveWithdrawal, rejectWithdrawal, getAllWithdrawals };

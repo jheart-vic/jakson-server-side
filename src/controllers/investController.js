@@ -55,6 +55,9 @@ const buyProduct = asyncHandler(async (req, res) => {
         )
     }
 
+    const totalInvestmentsBefore = await UserInvestment.countDocuments({ user: userId })
+    const isFirstInvestment = totalInvestmentsBefore === 0
+
     // Calculate expiration date
     const startDate = new Date()
     const expirationDate = new Date(startDate)
@@ -66,7 +69,7 @@ const buyProduct = asyncHandler(async (req, res) => {
         user.balance -= product.amount
     }
 
-    // ✅ UPGRADE VIP LEVEL
+    // Upgrade VIP level if needed
     if (product.vipLevel > user.vipLevel) {
         user.vipLevel = product.vipLevel
     }
@@ -95,7 +98,7 @@ const buyProduct = asyncHandler(async (req, res) => {
         await product.save()
     }
 
-    // Record transaction (out)
+    // Record transaction (out) for the investment
     if (product.amount > 0) {
         await Transaction.create({
             user: userId,
@@ -108,6 +111,59 @@ const buyProduct = asyncHandler(async (req, res) => {
             refModel: 'UserInvestment',
             refId: investment._id,
         })
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // REFERRAL REWARDS – Only for the user's first investment
+    // ─────────────────────────────────────────────────────────
+    if (isFirstInvestment && product.amount > 0) {
+        const investmentAmount = product.amount
+
+        // Helper to credit a referrer
+        const creditReferrer = async (referrerId, percentage, level) => {
+            if (!referrerId) return false
+            const referrer = await User.findById(referrerId)
+            if (!referrer || !referrer.isActive) return false
+
+            const reward = investmentAmount * (percentage / 100)
+            if (reward <= 0) return false
+
+            const before = referrer.balance
+            referrer.balance += reward
+            referrer.totalEarnings += reward
+            referrer.todayEarnings += reward
+            await referrer.save()
+
+            await Transaction.create({
+                user: referrerId,
+                type: 'in',
+                category: 'referral',
+                amountUSD: reward,
+                balanceBefore: before,
+                balanceAfter: referrer.balance,
+                description: `Tier ${level} referral commission from ${user.phone} (first investment)`,
+                refModel: 'User',
+                refId: userId,
+            })
+            return true
+        }
+
+        // Level 1: direct referrer (8%)
+        if (user.referredBy) {
+            await creditReferrer(user.referredBy, 8, 1)
+
+            // Level 2: referrer of the referrer (3%)
+            const level1Referrer = await User.findById(user.referredBy).select('referredBy')
+            if (level1Referrer && level1Referrer.referredBy) {
+                await creditReferrer(level1Referrer.referredBy, 3, 2)
+
+                // Level 3: next level (1%)
+                const level2Referrer = await User.findById(level1Referrer.referredBy).select('referredBy')
+                if (level2Referrer && level2Referrer.referredBy) {
+                    await creditReferrer(level2Referrer.referredBy, 1, 3)
+                }
+            }
+        }
     }
 
     return sendSuccess(res, { investment }, 'Investment successful', 201)

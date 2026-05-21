@@ -39,7 +39,6 @@ router.post('/reward/redeem', protect, redeemCode);
 router.post('/checkin',       protect, dailyCheckin);
 
 // ── User Notifications ────────────────────────────────────
-// Order matters: specific paths before :id
 router.get   ('/notifications',              protect, getUserNotifications);
 router.get   ('/notifications/unread-count', protect, getUnreadCount);
 router.put   ('/notifications/read-all',     protect, markAllAsRead);

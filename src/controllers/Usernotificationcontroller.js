@@ -10,10 +10,6 @@ const VALID_TYPES = [
 
 // ─────────────────────────────────────────
 // GET /api/notifications
-// ?filter=all|unread|read   (default: all)
-// ?type=deposit|withdrawal|bonus_code|...
-// ?page=1&limit=20
-// ─────────────────────────────────────────
 const getUserNotifications = asyncHandler(async (req, res) => {
   const { filter, type, page, limit } = req.query;
   const { skip, limit: lim, page: pg } = paginate(page, limit);

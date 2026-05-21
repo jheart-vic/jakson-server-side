@@ -62,11 +62,11 @@ const createWithdrawal = asyncHandler(async (req, res) => {
   // Calculate fee
   const feeLow = (await AppSettings.get('withdrawal_fee_low')) || 10;
   const feeHigh = (await AppSettings.get('withdrawal_fee_high')) || 20;
-  const threshold = (await AppSettings.get('withdrawal_fee_threshold')) || 500;
+  const threshold = (await AppSettings.get('withdrawal_fee_threshold')) || 100;
   const { feePercent, feeAmount, netAmount } = calcWithdrawalFee(amountUSD, feeLow, feeHigh, threshold);
 
   // Get exchange rate
-  const rate = (await AppSettings.get('usd_to_ngn_rate')) || 1365;
+  const rate = (await AppSettings.get('usd_to_ngn_rate')) || 1560;
   const netAmountNGN = +(netAmount * rate).toFixed(2);
 
   // Deduct from balance

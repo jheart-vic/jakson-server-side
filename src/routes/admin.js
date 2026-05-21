@@ -63,11 +63,11 @@ router.get('/settings', asyncHandler(async (req, res) => {
   settingsArray.forEach(s => { settings[s.key] = s.value; });
   // Provide defaults if not set
   const defaults = {
-    usd_to_ngn_rate: 1365,
+    usd_to_ngn_rate: 1560,
     payment_bank_account: { bankName: '', accountNumber: '', accountName: '' },
-    withdrawal_fee_threshold: 500,
-    withdrawal_fee_below: 10,
-    withdrawal_fee_above: 20,
+    withdrawal_fee_threshold: 100,
+    withdrawal_fee_below: 16,
+    withdrawal_fee_above: 10,
   };
   Object.assign(settings, defaults, settings);
   return sendSuccess(res, settings);

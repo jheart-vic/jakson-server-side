@@ -17,7 +17,7 @@ const createDeposit = asyncHandler(async (req, res) => {
   }
 
   // Get current exchange rate from settings
-  const rate = (await AppSettings.get('usd_to_ngn_rate')) || 1365;
+  const rate = (await AppSettings.get('usd_to_ngn_rate')) || 1560;
   const amountNGN = +(amountUSD * rate).toFixed(2);
 
   // Get payment bank details from settings (rotated for each deposit)

@@ -80,9 +80,7 @@ const deleteNotification = asyncHandler(async (req, res) => {
   return sendSuccess(res, {}, 'Notification deleted');
 });
 
-// ─────────────────────────────────────────
-// DELETE /api/notifications/all
-// ─────────────────────────────────────────
+
 const deleteAllNotifications = asyncHandler(async (req, res) => {
   const result = await UserNotification.deleteMany({ user: req.user._id });
   return sendSuccess(res, { deleted: result.deletedCount }, 'All notifications deleted');

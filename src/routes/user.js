@@ -12,14 +12,14 @@ const {
   redeemCode,
   dailyCheckin,
 } = require('../controllers/userController');
-const {
+const{
   getUserNotifications,
   getUnreadCount,
   markAsRead,
   markAllAsRead,
   deleteNotification,
   deleteAllNotifications,
-} = require('../controllers/userNotificationController');
+} = require('../controllers/usernotificationController');
 
 // ── Wallet ────────────────────────────────────────────────
 router.get('/wallet/balance',      protect, getBalance);

@@ -273,18 +273,19 @@ const dailyCheckin = asyncHandler(async (req, res) => {
     description: `Daily check-in reward (Day ${user.checkinStreak})`,
   });
 
-  return sendSuccess(res, {
-    reward,
-    streak: user.checkinStreak,
-    newBalance: user.balance,
-  }, 'Check-in successful!');
-
   notify(user._id, {
     type: 'checkin',
     title: 'Daily Check-in Reward 🎯',
     body: `Day ${user.checkinStreak} streak! $${reward.toFixed(2)} has been credited to your account.`,
     metadata: { reward, streak: user.checkinStreak },
   });
+  return sendSuccess(res, {
+    reward,
+    streak: user.checkinStreak,
+    newBalance: user.balance,
+  }, 'Check-in successful!');
+
+
 });
 
 module.exports = {

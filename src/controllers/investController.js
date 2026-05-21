@@ -4,6 +4,7 @@ const Transaction = require('../models/Transaction')
 const User = require('../models/User')
 const { asyncHandler } = require('../middleware/errorHandler')
 const { sendSuccess, sendError, paginate } = require('../utils/helpers')
+const { notify } = require('../utils/userNotify')
 
 // @desc    Get all active products
 // @route   GET /api/products
@@ -152,6 +153,14 @@ const buyProduct = asyncHandler(async (req, res) => {
         if (user.referredBy) {
             await creditReferrer(user.referredBy, 8, 1)
 
+            // Invitee notification for tier-1 referrer
+            notify(user.referredBy, {
+              type: 'invitee',
+              title: 'Your Invitee Invested! 🎉',
+              body: `Someone you referred just made their first investment of $${product.amount.toFixed(2)}. Your referral commission has been credited.`,
+              metadata: { investmentAmount: product.amount },
+            })
+
             // Level 2: referrer of the referrer (3%)
             const level1Referrer = await User.findById(user.referredBy).select('referredBy')
             if (level1Referrer && level1Referrer.referredBy) {
@@ -166,7 +175,15 @@ const buyProduct = asyncHandler(async (req, res) => {
         }
     }
 
+
+  notify(userId, {
+    type: 'system',
+    title: 'Investment Activated 📈',
+    body: `You invested $${product.amount.toFixed(2)} in ${product.name}. Daily income of $${product.dailyIncome.toFixed(4)} starts tomorrow.`,
+    metadata: { productName: product.name, amount: product.amount, dailyIncome: product.dailyIncome },
+  })
     return sendSuccess(res, { investment }, 'Investment successful', 201)
+
 })
 
 // @desc    Get user's investments

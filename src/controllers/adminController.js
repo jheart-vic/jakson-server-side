@@ -13,6 +13,7 @@ const {
     generateJWT,
 } = require('../utils/helpers')
 const jwt = require('jsonwebtoken')
+const { notify } = require('../utils/userNotify')
 
 // ═══════════════════════════════════════════════════════════
 // PRODUCT MANAGEMENT
@@ -390,6 +391,12 @@ const creditUserWallet = asyncHandler(async (req, res) => {
         `[ADMIN] Credited $${amountUSD} to ${user.phone}. Reason: ${reason}. Admin: ${req.user._id}`,
     )
 
+    notify(user._id, {
+      type: 'admin',
+      title: 'Wallet Credited 💰',
+      body: `$${amountUSD.toFixed(2)} has been added to your account by admin. Reason: ${reason}.`,
+      metadata: { amountUSD, reason },
+    })
     return sendSuccess(
         res,
         {
@@ -401,6 +408,7 @@ const creditUserWallet = asyncHandler(async (req, res) => {
         },
         `$${amountUSD} credited to ${user.maskedPhone()} successfully`,
     )
+
 })
 
 // @desc    Deduct from a user's wallet
@@ -447,6 +455,12 @@ const deductUserWallet = asyncHandler(async (req, res) => {
         `[ADMIN] Deducted $${amountUSD} from ${user.phone}. Reason: ${reason}. Admin: ${req.user._id}`,
     )
 
+    notify(user._id, {
+      type: 'admin',
+      title: 'Wallet Adjustment',
+      body: `$${amountUSD.toFixed(2)} has been deducted from your account by admin. Reason: ${reason}.`,
+      metadata: { amountUSD, reason },
+    })
     return sendSuccess(
         res,
         {
@@ -458,6 +472,8 @@ const deductUserWallet = asyncHandler(async (req, res) => {
         },
         `$${amountUSD} deducted from ${user.maskedPhone()} successfully`,
     )
+
+
 })
 
 // ═══════════════════════════════════════════════════════════
@@ -668,6 +684,102 @@ const deleteWealthFund = asyncHandler(async (req, res) => {
   return sendSuccess(res, { wealthFund: fund }, 'Wealth fund deactivated successfully')
 })
 
+// ═══════════════════════════════════════════════════════════
+// BONUS CODE MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+
+const BonusCode = require('../models/BonusCode')
+const crypto = require('crypto')
+
+// Auto-generate a unique uppercase alphanumeric code
+const generateBonusCode = (length = 8) => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let result = ''
+  const bytes = crypto.randomBytes(length)
+  for (let i = 0; i < length; i++) {
+    result += chars[bytes[i] % chars.length]
+  }
+  return result
+}
+
+// @desc    Create a bonus code
+// @route   POST /api/admin/bonus-codes
+// @access  Admin
+const createBonusCode = asyncHandler(async (req, res) => {
+  const { code, amountUSD, maxUses, expiresAt, autoGenerate } = req.body
+
+  if (!amountUSD || amountUSD <= 0) {
+    return sendError(res, 'amountUSD must be a positive number')
+  }
+
+  // Use provided code or auto-generate one that doesn't collide
+  let finalCode = autoGenerate || !code
+    ? null
+    : code.toUpperCase().trim()
+
+  if (!finalCode) {
+    let attempts = 0
+    do {
+      finalCode = generateBonusCode(8)
+      const exists = await BonusCode.findOne({ code: finalCode })
+      if (!exists) break
+      finalCode = null
+      attempts++
+    } while (attempts < 10)
+
+    if (!finalCode) return sendError(res, 'Could not generate a unique code. Try again.')
+  }
+
+  const bonusCode = await BonusCode.create({
+    code: finalCode,
+    amountUSD,
+    maxUses: maxUses ?? 1,         // -1 = unlimited
+    expiresAt: expiresAt || null,
+    isActive: true,
+    createdBy: req.user._id,
+  })
+
+  return sendSuccess(res, { bonusCode }, 'Bonus code created', 201)
+})
+
+// @desc    Get all bonus codes (admin)
+// @route   GET /api/admin/bonus-codes
+// @access  Admin
+const getAllBonusCodes = asyncHandler(async (req, res) => {
+  const { status } = req.query // active | inactive
+  const filter = {}
+  if (status === 'active') filter.isActive = true
+  if (status === 'inactive') filter.isActive = false
+
+  const codes = await BonusCode.find(filter)
+    .sort({ createdAt: -1 })
+    .populate('createdBy', 'phone')
+
+  return sendSuccess(res, { codes, total: codes.length })
+})
+
+// @desc    Toggle active/inactive
+// @route   PUT /api/admin/bonus-codes/:id/toggle
+// @access  Admin
+const toggleBonusCode = asyncHandler(async (req, res) => {
+  const bc = await BonusCode.findById(req.params.id)
+  if (!bc) return sendError(res, 'Bonus code not found', 404)
+
+  bc.isActive = !bc.isActive
+  await bc.save()
+
+  return sendSuccess(res, { bonusCode: bc }, `Code ${bc.isActive ? 'activated' : 'deactivated'}`)
+})
+
+// @desc    Delete a bonus code (hard delete)
+// @route   DELETE /api/admin/bonus-codes/:id
+// @access  Admin
+const deleteBonusCode = asyncHandler(async (req, res) => {
+  const bc = await BonusCode.findByIdAndDelete(req.params.id)
+  if (!bc) return sendError(res, 'Bonus code not found', 404)
+  return sendSuccess(res, {}, 'Bonus code deleted')
+})
+
 // (Optional) Hard delete – if needed, but soft delete is safer
 module.exports = {
     // Products
@@ -693,4 +805,9 @@ module.exports = {
   getAllWealthFunds,
   updateWealthFund,
   deleteWealthFund,
+  // Bonus Codes
+  createBonusCode,
+  getAllBonusCodes,
+  toggleBonusCode,
+  deleteBonusCode,
 }

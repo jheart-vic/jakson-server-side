@@ -5,6 +5,7 @@ const Transaction = require('../models/Transaction');
 const AppSettings = require('../models/AppSettings');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess, sendError, calcWithdrawalFee, paginate } = require('../utils/helpers');
+const { notify } = require('../utils/userNotify');
 
 // @desc    Submit a withdrawal request
 // @route   POST /api/withdraw
@@ -104,6 +105,12 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     refId: withdrawal._id,
   });
 
+  notify(req.user._id, {
+    type: 'withdrawal',
+    title: 'Withdrawal Submitted 📤',
+    body: `Your withdrawal of $${amountUSD.toFixed(2)} (net $${netAmount.toFixed(2)}) to ${bankAccount.bankName} is pending review.`,
+    metadata: { amountUSD, netAmountUSD: netAmount, withdrawalId: withdrawal._id },
+  });
   return sendSuccess(
     res,
     {
@@ -123,6 +130,8 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     'Withdrawal request submitted successfully',
     201
   );
+
+
 });
 
 // @desc    Admin: Get all withdrawals
@@ -183,6 +192,13 @@ const approveWithdrawal = asyncHandler(async (req, res) => {
   withdrawal.processedAt = new Date();
   await withdrawal.save();
 
+  notify(withdrawal.user, {
+    type: 'withdrawal',
+    title: 'Withdrawal Approved ✅',
+    body: `Your withdrawal of $${withdrawal.netAmountUSD.toFixed(2)} to ${withdrawal.bankSnapshot.bankName} has been approved and is on its way.`,
+    metadata: { netAmountUSD: withdrawal.netAmountUSD, withdrawalId: withdrawal._id },
+  });
+
   return sendSuccess(res, { withdrawal }, 'Withdrawal approved');
 });
 
@@ -219,6 +235,13 @@ const rejectWithdrawal = asyncHandler(async (req, res) => {
     description: `Withdrawal refunded: ${reason || 'Rejected'}`,
     refModel: 'Withdrawal',
     refId: withdrawal._id,
+  });
+
+  notify(withdrawal.user, {
+    type: 'withdrawal',
+    title: 'Withdrawal Rejected ❌',
+    body: `Your withdrawal of $${withdrawal.amountUSD.toFixed(2)} was rejected and refunded. Reason: ${reason || 'Rejected by admin'}.`,
+    metadata: { amountUSD: withdrawal.amountUSD, withdrawalId: withdrawal._id },
   });
 
   return sendSuccess(res, { withdrawal }, 'Withdrawal rejected and balance refunded');

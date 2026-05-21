@@ -8,13 +8,16 @@ const {
   createProduct, getAllProducts, updateProduct, deleteProduct,
   getAllUsers, getUserDetail, suspendUser, unsuspendUser, loginAsUser,
   creditUserWallet, deductUserWallet, getDashboard, assignRole,
-  createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund
+  createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund,
+  createBonusCode, getAllBonusCodes, toggleBonusCode, deleteBonusCode,
 } = require('../controllers/adminController');
+
 const AppSettings = require('../models/AppSettings');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess } = require('../utils/helpers');
+const { createNotification, getAllNotifications, updateNotification, deleteNotification } = require('../controllers/notificationController');
 
-// All routes below require a valid token + admin role
+// All routes require a valid token + admin role
 router.use(protect, adminOnly);
 
 // ── Dashboard ─────────────────────────────────────────────
@@ -56,15 +59,27 @@ router.get   ('/wealth-funds',     getAllWealthFunds);
 router.put   ('/wealth-funds/:id', updateWealthFund);
 router.delete('/wealth-funds/:id', deleteWealthFund);
 
+// ── Bonus Codes ───────────────────────────────────────────
+router.post  ('/bonus-codes',          createBonusCode);
+router.get   ('/bonus-codes',          getAllBonusCodes);
+router.put   ('/bonus-codes/:id/toggle', toggleBonusCode);
+router.delete('/bonus-codes/:id',      deleteBonusCode);
+
+// ── Notifications / Announcements ─────────────────────────
+router.post  ('/notifications',     createNotification);
+router.get   ('/notifications',     getAllNotifications);
+router.put   ('/notifications/:id', updateNotification);
+router.delete('/notifications/:id', deleteNotification);
+
 // ── App Settings ──────────────────────────────────────────
 // Canonical defaults — keys MUST match withdrawController.js and usePublicSettings.js
 const SETTING_DEFAULTS = {
   usd_to_ngn_rate:          1560,
   min_deposit:              11.5,
   min_withdrawal:           11.5,
-  withdrawal_fee_below:     16,       // % when amount < threshold
-  withdrawal_fee_above:     10,       // % when amount >= threshold
-  withdrawal_fee_threshold: 100,      // USD split point
+  withdrawal_fee_below:     16,
+  withdrawal_fee_above:     10,
+  withdrawal_fee_threshold: 100,
   withdrawal_days:          'Monday to Sunday',
   withdrawal_hours:         '10:00 AM – 05:00 PM',
   payment_bank_account: { bankName: '', accountNumber: '', accountName: '' },
@@ -72,14 +87,10 @@ const SETTING_DEFAULTS = {
 
 router.get('/settings', asyncHandler(async (req, res) => {
   const settingsArray = await AppSettings.find({});
-
-  // Build a plain object from DB rows
   const dbSettings = {};
   settingsArray.forEach(s => { dbSettings[s.key] = s.value; });
-
-  // Merge: defaults first, DB values win (not the other way round)
+  // DB values win; SETTING_DEFAULTS fill any gaps
   const settings = { ...SETTING_DEFAULTS, ...dbSettings };
-
   return sendSuccess(res, settings);
 }));
 

@@ -5,6 +5,7 @@ const Transaction = require('../models/Transaction');
 const BonusCode = require('../models/BonusCode');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess, sendError, paginate } = require('../utils/helpers');
+const { notify } = require('../utils/userNotify');
 
 // ─────────────────────────────────────────
 // BANK ACCOUNT
@@ -216,10 +217,19 @@ const redeemCode = asyncHandler(async (req, res) => {
     refId: bonusCode._id,
   });
 
+    notify(req.user._id, {
+      type: 'bonus_code',
+      title: 'Bonus Code Redeemed 🎉',
+      body: `Code ${code.toUpperCase()} accepted — $${bonusCode.amountUSD.toFixed(2)} has been added to your balance.`,
+      metadata: { amountUSD: bonusCode.amountUSD, code: code.toUpperCase() },
+    });
+
   return sendSuccess(res, {
     amountCredited: bonusCode.amountUSD,
     newBalance: user.balance,
   }, `$${bonusCode.amountUSD.toFixed(2)} credited to your account!`);
+
+
 });
 
 // ─────────────────────────────────────────
@@ -268,6 +278,13 @@ const dailyCheckin = asyncHandler(async (req, res) => {
     streak: user.checkinStreak,
     newBalance: user.balance,
   }, 'Check-in successful!');
+
+  notify(user._id, {
+    type: 'checkin',
+    title: 'Daily Check-in Reward 🎯',
+    body: `Day ${user.checkinStreak} streak! $${reward.toFixed(2)} has been credited to your account.`,
+    metadata: { reward, streak: user.checkinStreak },
+  });
 });
 
 module.exports = {

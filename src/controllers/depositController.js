@@ -4,6 +4,7 @@ const Transaction = require('../models/Transaction');
 const AppSettings = require('../models/AppSettings');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess, sendError, paginate } = require('../utils/helpers');
+const { notify } = require('../utils/userNotify');
 
 // @desc    Initiate a deposit
 // @route   POST /api/deposit
@@ -110,6 +111,13 @@ const approveDeposit = asyncHandler(async (req, res) => {
     refId: deposit._id,
   });
 
+  notify(deposit.user, {
+    type: 'deposit',
+    title: 'Deposit Approved ✅',
+    body: `Your deposit of $${deposit.amountUSD.toFixed(2)} has been approved and credited to your account.`,
+    metadata: { amountUSD: deposit.amountUSD, depositId: deposit._id },
+  });
+
   return sendSuccess(res, { deposit }, 'Deposit approved successfully');
 });
 
@@ -127,6 +135,13 @@ const rejectDeposit = asyncHandler(async (req, res) => {
   deposit.status = 'rejected';
   deposit.rejectedReason = reason || 'No reason provided';
   await deposit.save();
+
+  notify(deposit.user, {
+    type: 'deposit',
+    title: 'Deposit Rejected ❌',
+    body: `Your deposit of $${deposit.amountUSD.toFixed(2)} was rejected. Reason: ${reason || 'No reason provided'}.`,
+    metadata: { amountUSD: deposit.amountUSD, depositId: deposit._id },
+  });
 
   return sendSuccess(res, { deposit }, 'Deposit rejected');
 });

@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const UserInvestment = require('../models/UserInvestment');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const { notify } = require('../utils/userNotify');
 
 /**
  * Runs daily at midnight to:
@@ -22,6 +23,9 @@ const startDailyIncomeCron = () => {
 
       let credited = 0;
       let completed = 0;
+
+      // Accumulate per-user totals for a single notification per user
+      const userIncomeSummary = {}; // { userId: { total, count } }
 
       // 1. Process investments only on weekdays
       if (!isWeekend) {
@@ -73,10 +77,26 @@ const startDailyIncomeCron = () => {
             refId: investment._id,
           });
 
-          // Pay referral commissions (3%, 2%, 1%)
+          // Accumulate for notification summary
+          const uid = investment.user.toString();
+          if (!userIncomeSummary[uid]) userIncomeSummary[uid] = { total: 0, count: 0 };
+          userIncomeSummary[uid].total += income;
+          userIncomeSummary[uid].count += 1;
+
+          // Pay referral commissions
           await payReferralCommissions(investment.user, income);
 
           credited++;
+        }
+
+        // One daily income notification per user (summary)
+        for (const [userId, { total, count }] of Object.entries(userIncomeSummary)) {
+          await notify(userId, {
+            type: 'daily_income',
+            title: 'Daily Income Credited 💹',
+            body: `$${total.toFixed(4)} has been added to your balance from ${count} active investment${count > 1 ? 's' : ''}.`,
+            metadata: { total, count },
+          });
         }
 
         console.log(`✅ Daily income credited: ${credited} investments, Completed: ${completed}`);
@@ -84,12 +104,10 @@ const startDailyIncomeCron = () => {
         console.log(`🌙 Weekend (${now.toDateString()}) – skipping income distribution.`);
       }
 
-      // 2. Reset today → yesterday for all users (runs every day regardless of weekend)
+      // 2. Reset today → yesterday for all users (runs every day)
       await User.updateMany(
         {},
-        [
-          { $set: { yesterdayEarnings: '$todayEarnings', todayEarnings: 0 } },
-        ]
+        [{ $set: { yesterdayEarnings: '$todayEarnings', todayEarnings: 0 } }]
       );
       console.log(`🔄 Reset todayEarnings → yesterdayEarnings for all users`);
 
@@ -102,10 +120,7 @@ const startDailyIncomeCron = () => {
 };
 
 /**
- * Pay referral commissions up to 3 tiers
- * Level 1 (direct): 3%
- * Level 2: 2%
- * Level 3: 1%
+ * Pay referral commissions up to 3 tiers and notify each referrer
  */
 const payReferralCommissions = async (userId, incomeAmount) => {
   const TIERS = [
@@ -124,10 +139,9 @@ const payReferralCommissions = async (userId, incomeAmount) => {
     if (!referrer || !referrer.isActive) break;
 
     const commission = +(incomeAmount * tier.percent).toFixed(6);
-    if (commission <= 0) continue; // skip zero or negative
+    if (commission <= 0) continue;
 
     const balanceBefore = referrer.balance;
-
     referrer.balance += commission;
     referrer.totalEarnings += commission;
     referrer.todayEarnings += commission;
@@ -141,6 +155,13 @@ const payReferralCommissions = async (userId, incomeAmount) => {
       balanceBefore,
       balanceAfter: referrer.balance,
       description: `Referral commission (${(tier.percent * 100).toFixed(0)}%) from daily income`,
+    });
+
+    await notify(referrer._id, {
+      type: 'referral_bonus',
+      title: 'Referral Commission Earned 🤝',
+      body: `You earned $${commission.toFixed(6)} (${(tier.percent * 100).toFixed(0)}%) referral commission from your team's daily income.`,
+      metadata: { commission, percent: tier.percent * 100 },
     });
 
     currentUserId = referrer._id;

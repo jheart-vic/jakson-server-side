@@ -17,7 +17,7 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess } = require('../utils/helpers');
 const { createNotification, getAllNotifications, updateNotification, deleteNotification } = require('../controllers/notificationController');
 
-// All routes require a valid token + admin role
+
 router.use(protect, adminOnly);
 
 // ── Dashboard ─────────────────────────────────────────────

@@ -19,7 +19,7 @@ const{
   markAllAsRead,
   deleteNotification,
   deleteAllNotifications,
-} = require('../controllers/usernotificationController');
+} = require('../controllers/userNotificationController');
 
 // ── Wallet ────────────────────────────────────────────────
 router.get('/wallet/balance',      protect, getBalance);

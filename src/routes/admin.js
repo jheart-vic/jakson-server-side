@@ -15,7 +15,6 @@ const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess } = require('../utils/helpers');
 
 // All routes below require a valid token + admin role
-// (superAdminOnly routes override this per-route)
 router.use(protect, adminOnly);
 
 // ── Dashboard ─────────────────────────────────────────────
@@ -47,29 +46,40 @@ router.put('/deposits/:id/approve',  approveDeposit);
 router.put('/deposits/:id/reject',   rejectDeposit);
 
 // ── Withdrawal Management ─────────────────────────────────
-router.get('/withdrawals',  getAllWithdrawals)
+router.get('/withdrawals',           getAllWithdrawals);
 router.put('/withdraw/:id/approve',  approveWithdrawal);
 router.put('/withdraw/:id/reject',   rejectWithdrawal);
 
-router.post('/wealth-funds', createWealthFund)
-router.get('/wealth-funds', getAllWealthFunds)
-router.put('/wealth-funds/:id', updateWealthFund)
-router.delete('/wealth-funds/:id', deleteWealthFund)
+// ── Wealth Funds ──────────────────────────────────────────
+router.post  ('/wealth-funds',     createWealthFund);
+router.get   ('/wealth-funds',     getAllWealthFunds);
+router.put   ('/wealth-funds/:id', updateWealthFund);
+router.delete('/wealth-funds/:id', deleteWealthFund);
 
 // ── App Settings ──────────────────────────────────────────
+// Canonical defaults — keys MUST match withdrawController.js and usePublicSettings.js
+const SETTING_DEFAULTS = {
+  usd_to_ngn_rate:          1560,
+  min_deposit:              11.5,
+  min_withdrawal:           11.5,
+  withdrawal_fee_below:     16,       // % when amount < threshold
+  withdrawal_fee_above:     10,       // % when amount >= threshold
+  withdrawal_fee_threshold: 100,      // USD split point
+  withdrawal_days:          'Monday to Sunday',
+  withdrawal_hours:         '10:00 AM – 05:00 PM',
+  payment_bank_account: { bankName: '', accountNumber: '', accountName: '' },
+};
+
 router.get('/settings', asyncHandler(async (req, res) => {
   const settingsArray = await AppSettings.find({});
-  const settings = {};
-  settingsArray.forEach(s => { settings[s.key] = s.value; });
-  // Provide defaults if not set
-  const defaults = {
-    usd_to_ngn_rate: 1560,
-    payment_bank_account: { bankName: '', accountNumber: '', accountName: '' },
-    withdrawal_fee_threshold: 100,
-    withdrawal_fee_below: 16,
-    withdrawal_fee_above: 10,
-  };
-  Object.assign(settings, defaults, settings);
+
+  // Build a plain object from DB rows
+  const dbSettings = {};
+  settingsArray.forEach(s => { dbSettings[s.key] = s.value; });
+
+  // Merge: defaults first, DB values win (not the other way round)
+  const settings = { ...SETTING_DEFAULTS, ...dbSettings };
+
   return sendSuccess(res, settings);
 }));
 

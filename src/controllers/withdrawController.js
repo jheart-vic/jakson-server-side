@@ -16,10 +16,17 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     return sendError(res, 'Amount and withdrawal password are required');
   }
 
-    const minWithdrawal = (await AppSettings.get('min_withdrawal')) || 11.5;
-    if (amountUSD < minWithdrawal) {
-      return sendError(res, `Minimum withdrawal amount is $${minWithdrawal.toFixed(2)}`);
-    }
+  // ── Settings (all keys now match frontend & admin panel) ──
+  const minWithdrawal = (await AppSettings.get('min_withdrawal'))           || 11.5;
+  const feeLow        = (await AppSettings.get('withdrawal_fee_below'))      || 16;
+  const feeHigh       = (await AppSettings.get('withdrawal_fee_above'))      || 10;
+  const threshold     = (await AppSettings.get('withdrawal_fee_threshold'))  || 100;
+  const rate          = (await AppSettings.get('usd_to_ngn_rate'))           || 1560;
+
+  if (amountUSD < minWithdrawal) {
+    return sendError(res, `Minimum withdrawal amount is $${minWithdrawal.toFixed(2)}`);
+  }
+
   // Verify withdrawal password
   const user = await User.findById(req.user._id).select('+withdrawPassword');
   if (!user.withdrawPassword) {
@@ -49,24 +56,16 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     return sendError(res, 'You can only withdraw once per day');
   }
 
-  // Get bank account
-  const bankAccount = await BankAccount.findOne({
-    user: req.user._id,
-    isDefault: true,
-  });
-
+  // Get default bank account
+  const bankAccount = await BankAccount.findOne({ user: req.user._id, isDefault: true });
   if (!bankAccount) {
     return sendError(res, 'Please bind a bank account first');
   }
 
-  // Calculate fee
-  const feeLow = (await AppSettings.get('withdrawal_fee_low')) || 10;
-  const feeHigh = (await AppSettings.get('withdrawal_fee_high')) || 20;
-  const threshold = (await AppSettings.get('withdrawal_fee_threshold')) || 100;
+  // Calculate fee:
+  //   amount < threshold  → feeLow  (e.g. 16%)
+  //   amount >= threshold → feeHigh (e.g. 10%)
   const { feePercent, feeAmount, netAmount } = calcWithdrawalFee(amountUSD, feeLow, feeHigh, threshold);
-
-  // Get exchange rate
-  const rate = (await AppSettings.get('usd_to_ngn_rate')) || 1560;
   const netAmountNGN = +(netAmount * rate).toFixed(2);
 
   // Deduct from balance
@@ -79,12 +78,12 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     user: req.user._id,
     bankAccount: bankAccount._id,
     bankSnapshot: {
-      bankName: bankAccount.bankName,
-      accountName: bankAccount.accountName,
+      bankName:      bankAccount.bankName,
+      accountName:   bankAccount.accountName,
       accountNumber: bankAccount.accountNumber,
     },
     amountUSD,
-    amountNGN: +(amountUSD * rate).toFixed(2),
+    amountNGN:    +(amountUSD * rate).toFixed(2),
     exchangeRate: rate,
     feePercent,
     feeAmountUSD: feeAmount,
@@ -109,16 +108,16 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     res,
     {
       withdrawal: {
-        id: withdrawal._id,
+        id:           withdrawal._id,
         amountUSD,
         feePercent,
         feeAmountUSD: feeAmount,
         netAmountUSD: netAmount,
         netAmountNGN,
-        bankName: bankAccount.bankName,
+        bankName:     bankAccount.bankName,
         accountNumber: bankAccount.accountNumber,
-        status: withdrawal.status,
-        createdAt: withdrawal.createdAt,
+        status:       withdrawal.status,
+        createdAt:    withdrawal.createdAt,
       },
     },
     'Withdrawal request submitted successfully',
@@ -130,9 +129,9 @@ const createWithdrawal = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/withdrawals
 // @access  Admin
 const getAllWithdrawals = asyncHandler(async (req, res) => {
-  const { status, page, limit } = req.query
-  const { skip, limit: lim, page: pg } = paginate(page, limit)
-  const filter = status ? { status } : {}
+  const { status, page, limit } = req.query;
+  const { skip, limit: lim, page: pg } = paginate(page, limit);
+  const filter = status ? { status } : {};
 
   const [withdrawals, total] = await Promise.all([
     Withdrawal.find(filter)
@@ -141,13 +140,13 @@ const getAllWithdrawals = asyncHandler(async (req, res) => {
       .limit(lim)
       .populate('user', 'phone'),
     Withdrawal.countDocuments(filter),
-  ])
+  ]);
 
   return sendSuccess(res, {
     withdrawals,
     pagination: { total, page: pg, limit: lim, pages: Math.ceil(total / lim) },
-  })
-})
+  });
+});
 
 // @desc    Get withdrawal history
 // @route   GET /api/withdraw/log
@@ -177,10 +176,10 @@ const approveWithdrawal = asyncHandler(async (req, res) => {
   const withdrawal = await Withdrawal.findById(req.params.id);
   if (!withdrawal) return sendError(res, 'Withdrawal not found', 404);
   if (withdrawal.status !== 'pending') {
-    return sendError(res, `Cannot approve status: ${withdrawal.status}`);
+    return sendError(res, `Cannot approve a withdrawal with status: ${withdrawal.status}`);
   }
 
-  withdrawal.status = 'completed';
+  withdrawal.status      = 'completed';
   withdrawal.processedAt = new Date();
   await withdrawal.save();
 
@@ -195,7 +194,7 @@ const rejectWithdrawal = asyncHandler(async (req, res) => {
   const withdrawal = await Withdrawal.findById(req.params.id);
   if (!withdrawal) return sendError(res, 'Withdrawal not found', 404);
   if (withdrawal.status !== 'pending') {
-    return sendError(res, `Cannot reject status: ${withdrawal.status}`);
+    return sendError(res, `Cannot reject a withdrawal with status: ${withdrawal.status}`);
   }
 
   // Refund user balance
@@ -204,9 +203,9 @@ const rejectWithdrawal = asyncHandler(async (req, res) => {
   user.balance += withdrawal.amountUSD;
   await user.save({ validateBeforeSave: false });
 
-  withdrawal.status = 'rejected';
+  withdrawal.status         = 'rejected';
   withdrawal.rejectedReason = reason || 'Rejected by admin';
-  withdrawal.processedAt = new Date();
+  withdrawal.processedAt    = new Date();
   await withdrawal.save();
 
   // Record refund transaction

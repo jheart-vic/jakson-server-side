@@ -1,77 +1,60 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const jwt  = require('jsonwebtoken')
+const User = require('../models/User')
 
+/**
+ * Reads the access token from:
+ *  1. HTTP-only cookie  `access_token`  (browser clients)
+ *  2. Authorization header `Bearer …`   (non-browser / mobile fallback)
+ */
 const protect = async (req, res, next) => {
   try {
-    let token;
+    let token = req.cookies?.access_token
 
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.split(' ')[1];
+    // Fallback for API clients that send a Bearer token
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1]
     }
 
     if (!token) {
-      return res.status(401).json({ success: false, message: 'Not authorized, please log in' });
+      return res.status(401).json({ success: false, message: 'Not authorized, please log in' })
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id)
-      .select('-password -withdrawPassword -securityAnswer -securityQuestionId');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    const user    = await User.findById(decoded.id)
+      .select('-password -withdrawPassword -securityAnswer -securityQuestionId')
 
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'User no longer exists' });
-    }
+    if (!user)          return res.status(401).json({ success: false, message: 'User no longer exists' })
+    if (!user.isActive) return res.status(403).json({ success: false, message: 'Account suspended. Contact support.' })
 
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been suspended. Contact support.',
-      });
-    }
+    req.user = user
 
-    req.user = user;
-
-    // Attach impersonation info if this is an admin-issued token
     if (decoded.isImpersonating) {
-      req.isImpersonating = true;
-      req.adminId = decoded.adminId;
+      req.isImpersonating = true
+      req.adminId         = decoded.adminId
     }
 
-    next();
+    next()
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    // Expired access token → client should call /auth/refresh
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ success: false, message: 'Access token expired', code: 'TOKEN_EXPIRED' })
+    }
+    return res.status(401).json({ success: false, message: 'Invalid token' })
   }
-};
+}
 
-// Blocks impersonation tokens and checks role
 const adminOnly = (req, res, next) => {
-  if (req.isImpersonating) {
-    return res.status(403).json({
-      success: false,
-      message: 'Impersonation tokens cannot access admin routes',
-    });
-  }
+  if (req.isImpersonating)
+    return res.status(403).json({ success: false, message: 'Impersonation tokens cannot access admin routes' })
+  if (req.user?.role === 'admin' || req.user?.role === 'superadmin') return next()
+  return res.status(403).json({ success: false, message: 'Admin access required' })
+}
 
-  if (req.user && (req.user.role === 'admin' || req.user.role === 'superadmin')) {
-    return next();
-  }
-
-  return res.status(403).json({ success: false, message: 'Admin access required' });
-};
-
-// Superadmin only (for future sensitive ops e.g. deleting an admin)
 const superAdminOnly = (req, res, next) => {
-  if (req.isImpersonating) {
-    return res.status(403).json({
-      success: false,
-      message: 'Impersonation tokens cannot access admin routes',
-    });
-  }
+  if (req.isImpersonating)
+    return res.status(403).json({ success: false, message: 'Impersonation tokens cannot access admin routes' })
+  if (req.user?.role === 'superadmin') return next()
+  return res.status(403).json({ success: false, message: 'Superadmin access required' })
+}
 
-  if (req.user && req.user.role === 'superadmin') {
-    return next();
-  }
-
-  return res.status(403).json({ success: false, message: 'Superadmin access required' });
-};
-
-module.exports = { protect, adminOnly, superAdminOnly };
+module.exports = { protect, adminOnly, superAdminOnly }

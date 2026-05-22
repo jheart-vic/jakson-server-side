@@ -1,42 +1,75 @@
+const jwt = require('jsonwebtoken')
+
 const sendSuccess = (res, data = {}, message = 'Success', statusCode = 200) => {
-  return res.status(statusCode).json({
-    success: true,
-    message,
-    ...data,
-  });
-};
+  return res.status(statusCode).json({ success: true, message, ...data })
+}
 
 const sendError = (res, message = 'Error', statusCode = 400) => {
-  return res.status(statusCode).json({
-    success: false,
-    message,
-  });
-};
+  return res.status(statusCode).json({ success: false, message })
+}
 
-const generateJWT = (id) => {
-  const jwt = require('jsonwebtoken');
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  });
-};
+const generateAccessToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '1h' })
 
-// Calculate withdrawal fee
+const generateRefreshToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, {
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
+  })
+
+const generateJWT = generateAccessToken
+
+const isProd = () => process.env.NODE_ENV === 'production'
+
+const setAuthCookies = (res, userId) => {
+  const accessToken  = generateAccessToken(userId)
+  const refreshToken = generateRefreshToken(userId)
+
+  const cookieBase = {
+    httpOnly: true,
+    secure:   isProd(),
+    // 'none' requires secure:true (HTTPS only).
+    // In dev secure=false so we must use 'lax' — otherwise browser rejects the cookie.
+    sameSite: isProd() ? 'none' : 'lax',
+  }
+
+  // Access token — 1 hour
+  res.cookie('access_token', accessToken, {
+    ...cookieBase,
+    maxAge: 60 * 60 * 1000,
+  })
+
+  // Refresh token — 30 days, path-locked to the refresh endpoint
+  res.cookie('refresh_token', refreshToken, {
+    ...cookieBase,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path:   '/api/auth/refresh',
+  })
+
+  return { accessToken, refreshToken }
+}
+
+const clearAuthCookies = (res) => {
+  const base = { httpOnly: true, secure: isProd(), sameSite: isProd() ? 'none' : 'lax' }
+  res.clearCookie('access_token', base)
+  res.clearCookie('refresh_token', { ...base, path: '/api/auth/refresh' })
+}
+
 const calcWithdrawalFee = (amountUSD, feeLow = 10, feeHigh = 20, threshold = 500) => {
-  const feePercent = amountUSD >= threshold ? feeHigh : feeLow;
-  const feeAmount = +(amountUSD * (feePercent / 100)).toFixed(4);
-  const netAmount = +(amountUSD - feeAmount).toFixed(4);
-  return { feePercent, feeAmount, netAmount };
-};
+  const feePercent = amountUSD >= threshold ? feeHigh : feeLow
+  const feeAmount  = +(amountUSD * (feePercent / 100)).toFixed(4)
+  const netAmount  = +(amountUSD - feeAmount).toFixed(4)
+  return { feePercent, feeAmount, netAmount }
+}
 
-// Paginate helper
 const paginate = (page = 1, limit = 20) => {
-  const p = Math.max(1, parseInt(page));
-  const l = Math.min(100, Math.max(1, parseInt(limit)));
-  return {
-    skip: (p - 1) * l,
-    limit: l,
-    page: p,
-  };
-};
+  const p = Math.max(1, parseInt(page))
+  const l = Math.min(100, Math.max(1, parseInt(limit)))
+  return { skip: (p - 1) * l, limit: l, page: p }
+}
 
-module.exports = { sendSuccess, sendError, generateJWT, calcWithdrawalFee, paginate };
+module.exports = {
+  sendSuccess, sendError,
+  generateJWT, generateAccessToken, generateRefreshToken,
+  setAuthCookies, clearAuthCookies,
+  calcWithdrawalFee, paginate,
+}

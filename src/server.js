@@ -11,6 +11,7 @@ const connectDB = require('./config/db');
 const routes = require('./routes/index');
 const { errorHandler } = require('./middleware/errorHandler');
 const { startDailyIncomeCron } = require('./utils/cron');
+const cookieParser = require('cookie-parser')
 
 const app = express();
 
@@ -20,10 +21,10 @@ connectDB();
 // ─── Security Middleware ─────────────────
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
-}));
-
+}))
+app.use(cookieParser())
 // Rate limiting - global
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

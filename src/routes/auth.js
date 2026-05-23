@@ -7,6 +7,7 @@ const {
   getMe, changePassword, changeWithdrawPassword,
   getCaptcha, getSecurityQuestions,
   forgotPassword, resetPassword, getUserSecurityQuestion,
+  updateProfile,
 } = require('../controllers/authController')
 
 // ── Public ────────────────────────────────────────────────────────────────
@@ -28,5 +29,6 @@ router.post('/logout',  logout)    // clears both cookies
 router.get('/me',                    protect, getMe)
 router.put('/change-password',       protect, changePassword)
 router.put('/withdraw-password',     protect, changeWithdrawPassword)
+router.put('/profile',         protect, updateProfile)
 
 module.exports = router

@@ -7,5 +7,5 @@ const { claimDailyIncome } = require('../controllers/userController');
 router.get('/products', protect, getProducts);
 router.post('/buy/:productId', protect, buyProduct);
 router.get('/my', protect, getMyInvestments);
-router.post('/invest/claim-income', protect, claimDailyIncome)
+router.post('/claim-income', protect, claimDailyIncome)
 module.exports = router;

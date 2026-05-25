@@ -10,11 +10,7 @@ const { sendSuccess, sendError } = require('../utils/helpers');
 // @route   GET /api/settings/notifications
 // @access  Public
 const getPublicNotifications = asyncHandler(async (req, res) => {
-  const now = new Date();
-  const notifications = await Notification.find({
-    isActive: true,
-    $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
-  })
+  const notifications = await Notification.find({ isActive: true })
     .sort({ createdAt: -1 })
     .select('title body type bonusCode expiresAt createdAt');
 

@@ -8,6 +8,7 @@ const {
   getCaptcha, getSecurityQuestions,
   forgotPassword, resetPassword, getUserSecurityQuestion,
   updateProfile,
+  verifyPassword,
 } = require('../controllers/authController')
 
 // ── Public ────────────────────────────────────────────────────────────────
@@ -30,5 +31,6 @@ router.get('/me',                    protect, getMe)
 router.put('/change-password',       protect, changePassword)
 router.put('/withdraw-password',     protect, changeWithdrawPassword)
 router.put('/profile',         protect, updateProfile)
+router.post('/verify-password', protect, verifyPassword)
 
 module.exports = router

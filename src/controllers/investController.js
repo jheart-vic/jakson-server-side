@@ -120,7 +120,6 @@ const buyProduct = asyncHandler(async (req, res) => {
     if (isFirstInvestment && product.amount > 0) {
         const investmentAmount = product.amount
 
-        // Helper to credit a referrer
         const creditReferrer = async (referrerId, percentage, level) => {
             if (!referrerId) return false
             const referrer = await User.findById(referrerId)
@@ -153,12 +152,11 @@ const buyProduct = asyncHandler(async (req, res) => {
         if (user.referredBy) {
             await creditReferrer(user.referredBy, 8, 1)
 
-            // Invitee notification for tier-1 referrer
             notify(user.referredBy, {
-              type: 'invitee',
-              title: 'Your Invitee Invested! 🎉',
-              body: `Someone you referred just made their first investment of $${product.amount.toFixed(2)}. Your referral commission has been credited.`,
-              metadata: { investmentAmount: product.amount },
+                type: 'invitee',
+                title: 'Your Invitee Invested! 🎉',
+                body: `Someone you referred just made their first investment of $${product.amount.toFixed(2)}. Your referral commission has been credited.`,
+                metadata: { investmentAmount: product.amount },
             })
 
             // Level 2: referrer of the referrer (3%)
@@ -175,15 +173,98 @@ const buyProduct = asyncHandler(async (req, res) => {
         }
     }
 
+    notify(userId, {
+        type: 'system',
+        title: 'Investment Activated 📈',
+        body: `You invested $${product.amount.toFixed(2)} in ${product.name}. Daily income of $${product.dailyIncome.toFixed(4)} starts tomorrow.`,
+        metadata: { productName: product.name, amount: product.amount, dailyIncome: product.dailyIncome },
+    })
 
-  notify(userId, {
-    type: 'system',
-    title: 'Investment Activated 📈',
-    body: `You invested $${product.amount.toFixed(2)} in ${product.name}. Daily income of $${product.dailyIncome.toFixed(4)} starts tomorrow.`,
-    metadata: { productName: product.name, amount: product.amount, dailyIncome: product.dailyIncome },
-  })
     return sendSuccess(res, { investment }, 'Investment successful', 201)
+})
 
+// @desc    Claim income for a specific investment
+// @route   POST /api/invest/:investmentId/claim
+// @access  Private
+const claimInvestmentIncome = asyncHandler(async (req, res) => {
+    const { investmentId } = req.params
+    const userId = req.user._id
+
+    const investment = await UserInvestment.findOne({
+        _id: investmentId,
+        user: userId,
+        status: 'in_progress',
+    })
+
+    if (!investment) {
+        return sendError(res, 'Investment not found')
+    }
+
+    if (!investment.pendingIncome || investment.pendingIncome <= 0) {
+        return sendError(
+            res,
+            'No income available to claim for this investment. Income is queued on weekdays — check back tomorrow.',
+        )
+    }
+
+    // Prevent double-claiming on the same day
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (investment.lastIncomeClaim) {
+        const lastClaim = new Date(investment.lastIncomeClaim)
+        lastClaim.setHours(0, 0, 0, 0)
+        if (lastClaim.getTime() === today.getTime()) {
+            return sendError(
+                res,
+                "You've already claimed this investment's income today. Come back tomorrow!",
+            )
+        }
+    }
+
+    const amount = investment.pendingIncome
+    const user = await User.findById(userId)
+    const balanceBefore = user.balance
+
+    // Credit user
+    user.balance += amount
+    user.totalEarnings += amount
+    user.todayEarnings += amount
+    // Subtract from the aggregate pending pool (floor at 0 to avoid drift)
+    user.pendingDailyIncome = Math.max(0, (user.pendingDailyIncome || 0) - amount)
+    await user.save({ validateBeforeSave: false })
+
+    // Clear this investment's pending income and record claim time
+    investment.pendingIncome = 0
+    investment.lastIncomeClaim = new Date()
+    await investment.save()
+
+    await Transaction.create({
+        user: userId,
+        type: 'in',
+        category: 'daily_income',
+        amountUSD: amount,
+        balanceBefore,
+        balanceAfter: user.balance,
+        description: `Daily income claimed for ${investment.productSnapshot.name} ($${amount.toFixed(4)})`,
+        refModel: 'UserInvestment',
+        refId: investment._id,
+    })
+
+    notify(userId, {
+        type: 'system',
+        title: 'Income Claimed! 💰',
+        body: `$${amount.toFixed(4)} from ${investment.productSnapshot.name} has been added to your balance.`,
+        metadata: { amount, productName: investment.productSnapshot.name },
+    })
+
+    return sendSuccess(
+        res,
+        {
+            amountClaimed: amount,
+            newBalance: user.balance,
+        },
+        `$${amount.toFixed(4)} successfully credited!`,
+    )
 })
 
 // @desc    Get user's investments
@@ -213,4 +294,4 @@ const getMyInvestments = asyncHandler(async (req, res) => {
     })
 })
 
-module.exports = { getProducts, buyProduct, getMyInvestments }
+module.exports = { getProducts, buyProduct, claimInvestmentIncome, getMyInvestments }

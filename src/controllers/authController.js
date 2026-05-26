@@ -379,6 +379,16 @@ const getUserSecurityQuestion = asyncHandler(async (req, res) => {
     })
 })
 
+const verifyPassword = asyncHandler(async (req, res) => {
+    const { password } = req.body
+    if (!password) return sendError(res, 'Password is required')
+    const user = await User.findById(req.user._id).select('+password')
+    const isMatch = await user.comparePassword(password)
+    if (!isMatch) return sendError(res, 'Incorrect password', 401)
+    return sendSuccess(res, {}, 'Password verified')
+})
+
+
 module.exports = {
     register,
     login,
@@ -394,4 +404,5 @@ module.exports = {
     forgotPassword,
     resetPassword,
     getUserSecurityQuestion,
+    verifyPassword
 }

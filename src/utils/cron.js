@@ -1,3 +1,220 @@
+// const cron = require('node-cron')
+// const UserInvestment = require('../models/UserInvestment')
+// const User = require('../models/User')
+// const Transaction = require('../models/Transaction')
+// const { notify } = require('../utils/userNotify')
+
+// /**
+//  * Daily income cron (Mon-Fri):
+//  *
+//  * CLAIM MECHANICS:
+//  * ─ Each day's income is queued into user.pendingDailyIncome
+//  * ─ If the user did NOT claim yesterday's income before today's cron runs,
+//  *   yesterday's amount is FORFEITED (zeroed out, no transaction)
+//  * ─ If an investment expires and pendingDailyIncome > 0 and unclaimed, it is forfeited
+//  * ─ Referral commissions remain automatic (referrers always get paid)
+//  */
+// const startDailyIncomeCron = () => {
+//     const schedule = process.env.CRON_DAILY_INCOME || '0 0 * * *'
+
+//     cron.schedule(schedule, async () => {
+//         console.log(
+//             `🌞 [${new Date().toISOString()}] Running daily income cron...`,
+//         )
+//         try {
+//             const now = new Date()
+//             const dayOfWeek = now.getDay()
+//             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+
+//             let queued = 0,
+//                 completed = 0,
+//                 forfeited = 0
+
+//             if (!isWeekend) {
+//                 const investments = await UserInvestment.find({
+//                     status: 'in_progress',
+//                 })
+//                 const userSummary = {} // { userId: { total, count } }
+
+//                 for (const investment of investments) {
+//                     // Skip if already processed today
+//                     const today = new Date()
+//                     today.setHours(0, 0, 0, 0)
+//                     if (investment.lastIncomeDate) {
+//                         const last = new Date(investment.lastIncomeDate)
+//                         last.setHours(0, 0, 0, 0)
+//                         if (last.getTime() === today.getTime()) continue
+//                     }
+
+//                     const user = await User.findById(investment.user)
+//                     if (!user || !user.isActive) continue
+
+//                     // ── FORFEIT: if user didn't claim yesterday's pending income, zero it ──
+//                     if (user.pendingDailyIncome > 0) {
+//                         const lastClaim = user.lastIncomeClaim
+//                             ? new Date(user.lastIncomeClaim).setHours(
+//                                   0,
+//                                   0,
+//                                   0,
+//                                   0,
+//                               )
+//                             : null
+//                         const yesterday = new Date(today)
+//                         yesterday.setDate(yesterday.getDate() - 1)
+
+//                         // If no claim was made yesterday (or ever), forfeit
+//                         if (!lastClaim || lastClaim < yesterday.getTime()) {
+//                             console.log(
+//                                 `⚠️  Forfeiting $${user.pendingDailyIncome.toFixed(4)} for user ${user._id}`,
+//                             )
+//                             user.pendingDailyIncome = 0
+//                             forfeited++
+
+//                             await notify(user._id, {
+//                                 type: 'warning',
+//                                 title: 'Daily Income Forfeited ⚠️',
+//                                 body: "You missed yesterday's claim window. Daily income must be claimed each day — don't forget today's!",
+//                                 metadata: {},
+//                             })
+//                         }
+//                     }
+
+//                     const income = investment.dailyIncome
+
+//                     // Check if investment is expiring today
+//                     const isExpiring = now >= investment.expirationDate
+//                     if (isExpiring) {
+//                         // Forfeit any remaining pending on expiry
+//                         if (user.pendingDailyIncome > 0) {
+//                             user.pendingDailyIncome = 0
+//                             investment.pendingIncome = 0
+//                             forfeited++
+
+//                             await notify(user._id, {
+//                                 type: 'warning',
+//                                 title: 'Investment Expired — Unclaimed Income Lost ⚠️',
+//                                 body: `Your ${investment.productSnapshot.name} has expired. Any unclaimed income has been forfeited. Always claim before expiry!`,
+//                                 metadata: {},
+//                             })
+//                         }
+//                         investment.status = 'completed'
+//                         investment.daysElapsed += 1
+//                         investment.totalEarned += income // still count in total
+//                         investment.lastIncomeDate = now
+//                         completed++
+//                         await user.save({ validateBeforeSave: false })
+//                         await investment.save()
+//                         // Still pay referral commissions on last day
+//                         await payReferralCommissions(investment.user, income)
+//                         continue
+//                     }
+
+//                     // ── Queue today's income ─────────────────────────────────────────
+//                     user.pendingDailyIncome =
+//                         (user.pendingDailyIncome || 0) + income
+//                     investment.pendingIncome =
+//                         (investment.pendingIncome || 0) + income
+//                     investment.daysElapsed += 1
+//                     investment.totalEarned += income
+//                     investment.lastIncomeDate = now
+
+//                     await user.save({ validateBeforeSave: false })
+//                     await investment.save()
+
+//                     // Accumulate for single notification per user
+//                     const uid = investment.user.toString()
+//                     if (!userSummary[uid])
+//                         userSummary[uid] = { total: 0, count: 0 }
+//                     userSummary[uid].total += income
+//                     userSummary[uid].count += 1
+
+//                     // Referral commissions — always automatic
+//                     await payReferralCommissions(investment.user, income)
+//                     queued++
+//                 }
+
+//                 // One notification per user with urgency warning
+//                 for (const [userId, { total, count }] of Object.entries(
+//                     userSummary,
+//                 )) {
+//                     await notify(userId, {
+//                         type: 'daily_income',
+//                         title: 'Claim Your Daily Income Now! ⏰',
+//                         body:
+//                             `$${total.toFixed(4)} from ${count} investment${count > 1 ? 's' : ''} is ready. ` +
+//                             `You must claim TODAY — unclaimed income is forfeited at midnight.`,
+//                         metadata: { total, count },
+//                     })
+//                 }
+
+//                 console.log(
+//                     `✅ Income queued: ${queued} | Completed: ${completed} | Forfeited: ${forfeited}`,
+//                 )
+//             } else {
+//                 console.log(
+//                     `🌙 Weekend (${now.toDateString()}) – skipping income distribution.`,
+//                 )
+//             }
+
+//             // Reset today → yesterday for all users (every day)
+//             await User.updateMany({}, [
+//                 {
+//                     $set: {
+//                         yesterdayEarnings: '$todayEarnings',
+//                         todayEarnings: 0,
+//                     },
+//                 },
+//             ])
+//             console.log('🔄 Reset todayEarnings → yesterdayEarnings')
+//         } catch (err) {
+//             console.error('❌ Daily income cron error:', err)
+//         }
+//     })
+
+//     console.log('⏰ Daily income cron scheduled')
+// }
+
+// const payReferralCommissions = async (userId, incomeAmount) => {
+//     const TIERS = [{ percent: 0.03 }, { percent: 0.02 }, { percent: 0.01 }]
+//     let currentUserId = userId
+//     for (const tier of TIERS) {
+//         const user = await User.findById(currentUserId)
+//         if (!user || !user.referredBy) break
+//         const referrer = await User.findById(user.referredBy)
+//         if (!referrer || !referrer.isActive) break
+
+//         const commission = +(incomeAmount * tier.percent).toFixed(6)
+//         if (commission <= 0) continue
+
+//         const balanceBefore = referrer.balance
+//         referrer.balance += commission
+//         referrer.totalEarnings += commission
+//         referrer.todayEarnings += commission
+//         await referrer.save({ validateBeforeSave: false })
+
+//         await Transaction.create({
+//             user: referrer._id,
+//             type: 'in',
+//             category: 'referral_bonus',
+//             amountUSD: commission,
+//             balanceBefore,
+//             balanceAfter: referrer.balance,
+//             description: `Referral commission (${(tier.percent * 100).toFixed(0)}%) from daily income`,
+//         })
+
+//         await notify(referrer._id, {
+//             type: 'referral_bonus',
+//             title: 'Referral Commission Earned 🤝',
+//             body: `You earned $${commission.toFixed(6)} (${(tier.percent * 100).toFixed(0)}%) from your team's daily income.`,
+//             metadata: { commission, percent: tier.percent * 100 },
+//         })
+
+//         currentUserId = referrer._id
+//     }
+// }
+
+// module.exports = { startDailyIncomeCron }
+
 const cron = require('node-cron')
 const UserInvestment = require('../models/UserInvestment')
 const User = require('../models/User')
@@ -8,14 +225,32 @@ const { notify } = require('../utils/userNotify')
  * Daily income cron (Mon-Fri):
  *
  * CLAIM MECHANICS:
- * ─ Each day's income is queued into user.pendingDailyIncome
- * ─ If the user did NOT claim yesterday's income before today's cron runs,
- *   yesterday's amount is FORFEITED (zeroed out, no transaction)
- * ─ If an investment expires and pendingDailyIncome > 0 and unclaimed, it is forfeited
+ * ─ Each day's income is queued into investment.pendingIncome (per-investment)
+ *   and mirrored into user.pendingDailyIncome (aggregate, for dashboard display)
+ * ─ Users claim each investment independently via POST /api/invest/:id/claim
+ * ─ If a specific investment's pendingIncome was NOT claimed before today's cron
+ *   runs, that investment's amount is FORFEITED individually
+ * ─ Forfeit uses lastValidWeekday (not "yesterday") so a weekend gap never
+ *   counts as a missed day
  * ─ Referral commissions remain automatic (referrers always get paid)
  */
+
+/**
+ * Returns midnight of the most recent weekday (Mon–Fri) strictly before `date`.
+ * e.g. called on Monday → returns last Friday midnight.
+ */
+const lastWeekdayBefore = (date) => {
+    const d = new Date(date)
+    d.setHours(0, 0, 0, 0)
+    do {
+        d.setDate(d.getDate() - 1)
+    } while (d.getDay() === 0 || d.getDay() === 6)
+    return d
+}
+
 const startDailyIncomeCron = () => {
-    const schedule = process.env.CRON_DAILY_INCOME || '0 0 * * *'
+    // 8 AM Mon–Fri — gives users the full day to claim each investment
+    const schedule = process.env.CRON_DAILY_INCOME || '0 8 * * 1-5'
 
     cron.schedule(schedule, async () => {
         console.log(
@@ -31,120 +266,137 @@ const startDailyIncomeCron = () => {
                 forfeited = 0
 
             if (!isWeekend) {
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const lastValidWeekday = lastWeekdayBefore(today)
+
                 const investments = await UserInvestment.find({
                     status: 'in_progress',
                 })
-                const userSummary = {} // { userId: { total, count } }
 
-                for (const investment of investments) {
+                // Group by user to load each User doc once and send
+                // one notification per user instead of one per investment
+                const byUser = {}
+                for (const inv of investments) {
                     // Skip if already processed today
-                    const today = new Date()
-                    today.setHours(0, 0, 0, 0)
-                    if (investment.lastIncomeDate) {
-                        const last = new Date(investment.lastIncomeDate)
+                    if (inv.lastIncomeDate) {
+                        const last = new Date(inv.lastIncomeDate)
                         last.setHours(0, 0, 0, 0)
                         if (last.getTime() === today.getTime()) continue
                     }
-
-                    const user = await User.findById(investment.user)
-                    if (!user || !user.isActive) continue
-
-                    // ── FORFEIT: if user didn't claim yesterday's pending income, zero it ──
-                    if (user.pendingDailyIncome > 0) {
-                        const lastClaim = user.lastIncomeClaim
-                            ? new Date(user.lastIncomeClaim).setHours(
-                                  0,
-                                  0,
-                                  0,
-                                  0,
-                              )
-                            : null
-                        const yesterday = new Date(today)
-                        yesterday.setDate(yesterday.getDate() - 1)
-
-                        // If no claim was made yesterday (or ever), forfeit
-                        if (!lastClaim || lastClaim < yesterday.getTime()) {
-                            console.log(
-                                `⚠️  Forfeiting $${user.pendingDailyIncome.toFixed(4)} for user ${user._id}`,
-                            )
-                            user.pendingDailyIncome = 0
-                            forfeited++
-
-                            await notify(user._id, {
-                                type: 'warning',
-                                title: 'Daily Income Forfeited ⚠️',
-                                body: "You missed yesterday's claim window. Daily income must be claimed each day — don't forget today's!",
-                                metadata: {},
-                            })
-                        }
-                    }
-
-                    const income = investment.dailyIncome
-
-                    // Check if investment is expiring today
-                    const isExpiring = now >= investment.expirationDate
-                    if (isExpiring) {
-                        // Forfeit any remaining pending on expiry
-                        if (user.pendingDailyIncome > 0) {
-                            user.pendingDailyIncome = 0
-                            investment.pendingIncome = 0
-                            forfeited++
-
-                            await notify(user._id, {
-                                type: 'warning',
-                                title: 'Investment Expired — Unclaimed Income Lost ⚠️',
-                                body: `Your ${investment.productSnapshot.name} has expired. Any unclaimed income has been forfeited. Always claim before expiry!`,
-                                metadata: {},
-                            })
-                        }
-                        investment.status = 'completed'
-                        investment.daysElapsed += 1
-                        investment.totalEarned += income // still count in total
-                        investment.lastIncomeDate = now
-                        completed++
-                        await user.save({ validateBeforeSave: false })
-                        await investment.save()
-                        // Still pay referral commissions on last day
-                        await payReferralCommissions(investment.user, income)
-                        continue
-                    }
-
-                    // ── Queue today's income ─────────────────────────────────────────
-                    user.pendingDailyIncome =
-                        (user.pendingDailyIncome || 0) + income
-                    investment.pendingIncome =
-                        (investment.pendingIncome || 0) + income
-                    investment.daysElapsed += 1
-                    investment.totalEarned += income
-                    investment.lastIncomeDate = now
-
-                    await user.save({ validateBeforeSave: false })
-                    await investment.save()
-
-                    // Accumulate for single notification per user
-                    const uid = investment.user.toString()
-                    if (!userSummary[uid])
-                        userSummary[uid] = { total: 0, count: 0 }
-                    userSummary[uid].total += income
-                    userSummary[uid].count += 1
-
-                    // Referral commissions — always automatic
-                    await payReferralCommissions(investment.user, income)
-                    queued++
+                    const uid = inv.user.toString()
+                    if (!byUser[uid]) byUser[uid] = []
+                    byUser[uid].push(inv)
                 }
 
-                // One notification per user with urgency warning
-                for (const [userId, { total, count }] of Object.entries(
-                    userSummary,
-                )) {
-                    await notify(userId, {
-                        type: 'daily_income',
-                        title: 'Claim Your Daily Income Now! ⏰',
-                        body:
-                            `$${total.toFixed(4)} from ${count} investment${count > 1 ? 's' : ''} is ready. ` +
-                            `You must claim TODAY — unclaimed income is forfeited at midnight.`,
-                        metadata: { total, count },
-                    })
+                for (const [uid, userInvestments] of Object.entries(byUser)) {
+                    const user = await User.findById(uid)
+                    if (!user || !user.isActive) continue
+
+                    let userQueuedTotal = 0
+                    let userQueuedCount = 0
+                    let userForfeitedCount = 0
+                    let anyExpiredWhilePending = false
+
+                    for (const investment of userInvestments) {
+                        const income = investment.dailyIncome
+                        const isExpiring = now >= investment.expirationDate
+
+                        // ── Per-investment forfeit check ───────────────────────
+                        // If this investment still has unclaimed income from a
+                        // previous weekday, forfeit it before queuing today's.
+                        if (investment.pendingIncome > 0) {
+                            const lastClaim = investment.lastIncomeClaim
+                                ? new Date(investment.lastIncomeClaim).setHours(0, 0, 0, 0)
+                                : null
+
+                            if (!lastClaim || lastClaim < lastValidWeekday.getTime()) {
+                                console.log(
+                                    `⚠️  Forfeiting $${investment.pendingIncome.toFixed(4)} ` +
+                                    `for investment ${investment._id} (user ${uid})`,
+                                )
+                                // Subtract forfeited amount from the user aggregate
+                                user.pendingDailyIncome = Math.max(
+                                    0,
+                                    (user.pendingDailyIncome || 0) - investment.pendingIncome,
+                                )
+                                investment.pendingIncome = 0
+                                forfeited++
+                                userForfeitedCount++
+                            }
+                        }
+
+                        if (isExpiring) {
+                            // Forfeit any still-pending income on this expiring investment
+                            if (investment.pendingIncome > 0) {
+                                user.pendingDailyIncome = Math.max(
+                                    0,
+                                    (user.pendingDailyIncome || 0) - investment.pendingIncome,
+                                )
+                                investment.pendingIncome = 0
+                                forfeited++
+                                anyExpiredWhilePending = true
+                            }
+                            investment.status = 'completed'
+                            investment.daysElapsed += 1
+                            investment.totalEarned += income
+                            investment.lastIncomeDate = now
+                            completed++
+                            await investment.save()
+                            await payReferralCommissions(user._id, income)
+                            continue
+                        }
+
+                        // ── Queue today's income for this investment ───────────
+                        investment.pendingIncome = (investment.pendingIncome || 0) + income
+                        investment.daysElapsed += 1
+                        investment.totalEarned += income
+                        investment.lastIncomeDate = now
+                        await investment.save()
+
+                        // Mirror into user aggregate for dashboard display
+                        user.pendingDailyIncome = (user.pendingDailyIncome || 0) + income
+
+                        userQueuedTotal += income
+                        userQueuedCount++
+                        queued++
+
+                        await payReferralCommissions(user._id, income)
+                    }
+
+                    await user.save({ validateBeforeSave: false })
+
+                    // Single forfeit notification per user (not per investment)
+                    if (userForfeitedCount > 0) {
+                        await notify(uid, {
+                            type: 'warning',
+                            title: 'Daily Income Forfeited ⚠️',
+                            body: `${userForfeitedCount} investment${userForfeitedCount > 1 ? 's' : ''} had unclaimed income that was forfeited. Claim each investment daily to avoid losing income.`,
+                            metadata: { count: userForfeitedCount },
+                        })
+                    }
+
+                    // Single expiry-forfeit notification per user
+                    if (anyExpiredWhilePending) {
+                        await notify(uid, {
+                            type: 'warning',
+                            title: 'Investment Expired — Unclaimed Income Lost ⚠️',
+                            body: 'One of your investments expired with unclaimed income. Always claim before expiry!',
+                            metadata: {},
+                        })
+                    }
+
+                    // Single income-ready notification listing total across all investments
+                    if (userQueuedCount > 0) {
+                        await notify(uid, {
+                            type: 'daily_income',
+                            title: 'Claim Your Daily Income Now! ⏰',
+                            body:
+                                `$${userQueuedTotal.toFixed(4)} from ${userQueuedCount} investment${userQueuedCount > 1 ? 's' : ''} is ready to claim. ` +
+                                `Each investment must be claimed individually — unclaimed income is forfeited tomorrow morning.`,
+                            metadata: { total: userQueuedTotal, count: userQueuedCount },
+                        })
+                    }
                 }
 
                 console.log(
@@ -156,7 +408,7 @@ const startDailyIncomeCron = () => {
                 )
             }
 
-            // Reset today → yesterday for all users (every day)
+            // Reset today → yesterday for all users (runs every day including weekends)
             await User.updateMany({}, [
                 {
                     $set: {

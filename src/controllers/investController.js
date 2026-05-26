@@ -56,7 +56,9 @@ const buyProduct = asyncHandler(async (req, res) => {
         )
     }
 
-    const totalInvestmentsBefore = await UserInvestment.countDocuments({ user: userId })
+    const totalInvestmentsBefore = await UserInvestment.countDocuments({
+        user: userId,
+    })
     const isFirstInvestment = totalInvestmentsBefore === 0
 
     // Calculate expiration date
@@ -137,12 +139,12 @@ const buyProduct = asyncHandler(async (req, res) => {
             await Transaction.create({
                 user: referrerId,
                 type: 'in',
-                category: 'referral',
+                category: 'referral_bonus',
                 amountUSD: reward,
                 balanceBefore: before,
                 balanceAfter: referrer.balance,
                 description: `Tier ${level} referral commission from ${user.phone} (first investment)`,
-                refModel: 'User',
+                refModel: 'UserInvestment',
                 refId: userId,
             })
             return true
@@ -160,12 +162,16 @@ const buyProduct = asyncHandler(async (req, res) => {
             })
 
             // Level 2: referrer of the referrer (3%)
-            const level1Referrer = await User.findById(user.referredBy).select('referredBy')
+            const level1Referrer = await User.findById(user.referredBy).select(
+                'referredBy',
+            )
             if (level1Referrer && level1Referrer.referredBy) {
                 await creditReferrer(level1Referrer.referredBy, 3, 2)
 
                 // Level 3: next level (1%)
-                const level2Referrer = await User.findById(level1Referrer.referredBy).select('referredBy')
+                const level2Referrer = await User.findById(
+                    level1Referrer.referredBy,
+                ).select('referredBy')
                 if (level2Referrer && level2Referrer.referredBy) {
                     await creditReferrer(level2Referrer.referredBy, 1, 3)
                 }
@@ -177,7 +183,11 @@ const buyProduct = asyncHandler(async (req, res) => {
         type: 'system',
         title: 'Investment Activated 📈',
         body: `You invested $${product.amount.toFixed(2)} in ${product.name}. Daily income of $${product.dailyIncome.toFixed(4)} starts tomorrow.`,
-        metadata: { productName: product.name, amount: product.amount, dailyIncome: product.dailyIncome },
+        metadata: {
+            productName: product.name,
+            amount: product.amount,
+            dailyIncome: product.dailyIncome,
+        },
     })
 
     return sendSuccess(res, { investment }, 'Investment successful', 201)
@@ -230,7 +240,10 @@ const claimInvestmentIncome = asyncHandler(async (req, res) => {
     user.totalEarnings += amount
     user.todayEarnings += amount
     // Subtract from the aggregate pending pool (floor at 0 to avoid drift)
-    user.pendingDailyIncome = Math.max(0, (user.pendingDailyIncome || 0) - amount)
+    user.pendingDailyIncome = Math.max(
+        0,
+        (user.pendingDailyIncome || 0) - amount,
+    )
     await user.save({ validateBeforeSave: false })
 
     // Clear this investment's pending income and record claim time
@@ -294,4 +307,9 @@ const getMyInvestments = asyncHandler(async (req, res) => {
     })
 })
 
-module.exports = { getProducts, buyProduct, claimInvestmentIncome, getMyInvestments }
+module.exports = {
+    getProducts,
+    buyProduct,
+    claimInvestmentIncome,
+    getMyInvestments,
+}

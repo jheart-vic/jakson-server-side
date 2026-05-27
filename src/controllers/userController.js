@@ -150,48 +150,79 @@ const getTierMembers = asyncHandler(async (req, res) => {
     const { page, limit } = req.query
     const { skip, limit: lim, page: pg } = paginate(page, limit)
 
-    let memberIds = []
+    let referByFilter
 
     if (tier === 1) {
-        memberIds = [userId]
+        referByFilter = userId
     } else if (tier === 2) {
         const t1 = await User.find({ referredBy: userId }).select('_id')
-        memberIds = t1.map((u) => u._id)
+        referByFilter = { $in: t1.map((u) => u._id) }
     } else if (tier === 3) {
         const t1 = await User.find({ referredBy: userId }).select('_id')
-        const t1Ids = t1.map((u) => u._id)
-        const t2 = await User.find({ referredBy: { $in: t1Ids } }).select('_id')
-        memberIds = t2.map((u) => u._id)
+        const t2 = await User.find({ referredBy: { $in: t1.map((u) => u._id) } }).select('_id')
+        referByFilter = { $in: t2.map((u) => u._id) }
     } else {
         return sendError(res, 'Tier must be 1, 2, or 3')
     }
-
-    const referByFilter = tier === 1 ? userId : { $in: memberIds }
 
     const [members, total] = await Promise.all([
         User.find({ referredBy: referByFilter })
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(lim)
-            .select('phone createdAt vipLevel totalInvested'), // + totalInvested
+            .select('phone fullName userName createdAt vipLevel'),
         User.countDocuments({ referredBy: referByFilter }),
     ])
+
+    // Get all investments belonging to these members
+    const memberIds = members.map((m) => m._id)
+    const memberInvestments = await UserInvestment.find({
+        user: { $in: memberIds },
+    }).select('_id user')
+
+    // Map investmentId → memberId for lookup
+    const investmentToMember = {}
+    for (const inv of memberInvestments) {
+        investmentToMember[inv._id.toString()] = inv.user.toString()
+    }
+
+    // Sum referral_bonus transactions earned by THIS user, grouped by source investment
+    const commissions = await Transaction.aggregate([
+        {
+            $match: {
+                user: userId,
+                category: 'referral_bonus',
+                refModel: 'UserInvestment',
+                refId: { $in: memberInvestments.map((i) => i._id) },
+            },
+        },
+        {
+            $group: {
+                _id: '$refId',   // investmentId
+                total: { $sum: '$amountUSD' },
+            },
+        },
+    ])
+
+    // Roll up: member → total earned from that member
+    const earnedByMember = {}
+    for (const row of commissions) {
+        const memberId = investmentToMember[row._id.toString()]
+        if (memberId) {
+            earnedByMember[memberId] = (earnedByMember[memberId] || 0) + row.total
+        }
+    }
 
     return sendSuccess(res, {
         tier,
         members: members.map((m) => ({
             _id: m._id,
-            displayName: m.displayName(), // ← call the method, don't serialize it as a field
+            displayName: m.displayName(),
             createdAt: m.createdAt,
-            totalInvested: m.totalInvested || 0,
+            totalInvested: earnedByMember[m._id.toString()] || 0, // what YOU earned from them
             vipLevel: m.vipLevel,
         })),
-        pagination: {
-            total,
-            page: pg,
-            limit: lim,
-            pages: Math.ceil(total / lim),
-        },
+        pagination: { total, page: pg, limit: lim, pages: Math.ceil(total / lim) },
     })
 })
 

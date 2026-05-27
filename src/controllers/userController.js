@@ -133,13 +133,11 @@ const getTeamStats = asyncHandler(async (req, res) => {
         totalEarnings: req.user.totalEarnings,
         todayEarnings: req.user.todayEarnings,
         yesterdayEarnings: req.user.yesterdayEarnings,
-        team: {
-            tier1: { count: tier1Members.length, commission: '8%' },
-            tier2: { count: tier2Members.length, commission: '3%' },
-            tier3: { count: tier3Members.length, commission: '1%' },
-            totalPeople:
-                tier1Members.length + tier2Members.length + tier3Members.length,
-        },
+        totalMembers:
+            tier1Members.length + tier2Members.length + tier3Members.length,
+        tier1Count: tier1Members.length,
+        tier2Count: tier2Members.length,
+        tier3Count: tier3Members.length,
     })
 })
 
@@ -175,16 +173,18 @@ const getTierMembers = asyncHandler(async (req, res) => {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(lim)
-            .select('phone createdAt vipLevel'),
+            .select('phone createdAt vipLevel totalInvested'), // + totalInvested
         User.countDocuments({ referredBy: referByFilter }),
     ])
 
     return sendSuccess(res, {
         tier,
         members: members.map((m) => ({
-            phone: m.maskedPhone(),
+            _id: m._id,
+            displayName: m.displayName(), // ← call the method, don't serialize it as a field
+            createdAt: m.createdAt,
+            totalInvested: m.totalInvested || 0,
             vipLevel: m.vipLevel,
-            joinedAt: m.createdAt,
         })),
         pagination: {
             total,

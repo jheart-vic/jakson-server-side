@@ -29,6 +29,7 @@ const createProduct = asyncHandler(async (req, res) => {
         amount,
         cycleDays,
         dailyIncome,
+        vipLevel,
         maxUnits,
         availableUnits,
         isFree,
@@ -42,12 +43,17 @@ const createProduct = asyncHandler(async (req, res) => {
         )
     }
 
+    if (vipLevel == null) {
+        return sendError(res, 'vipLevel is required')
+    }
+
     const product = await Product.create({
         name,
         image: image || null,
         amount,
         cycleDays,
         dailyIncome,
+        vipLevel,
         maxUnits: maxUnits ?? 1,
         availableUnits: availableUnits ?? maxUnits ?? 1,
         isFree: isFree || false,
@@ -84,6 +90,7 @@ const updateProduct = asyncHandler(async (req, res) => {
         'amount',
         'cycleDays',
         'dailyIncome',
+        'vipLevel',
         'maxUnits',
         'availableUnits',
         'isFree',

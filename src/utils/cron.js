@@ -2,7 +2,6 @@ const cron = require('node-cron')
 const mongoose = require('mongoose')
 const UserInvestment = require('../models/UserInvestment')
 const User = require('../models/User')
-const Transaction = require('../models/Transaction')
 const { notify } = require('../utils/userNotify')
 
 /**
@@ -12,11 +11,12 @@ const { notify } = require('../utils/userNotify')
  * ─ Each day's income is queued into investment.pendingIncome (per-investment)
  *   and mirrored into user.pendingDailyIncome (aggregate, for dashboard display)
  * ─ Users claim each investment independently via POST /api/invest/:id/claim
+ * ─ Referral commissions are paid at CLAIM TIME (not queue time) so referrers
+ *   only earn when real money actually moves — not on forfeited income
  * ─ If a specific investment's pendingIncome was NOT claimed before today's cron
  *   runs, that investment's amount is FORFEITED individually
  * ─ Forfeit uses lastValidWeekday (not "yesterday") so a weekend gap never
  *   counts as a missed day
- * ─ Referral commissions remain automatic (referrers always get paid)
  * ─ Each user's entire processing block runs inside a MongoDB transaction
  */
 
@@ -71,8 +71,7 @@ const startDailyIncomeCron = () => {
                     const session = await mongoose.startSession()
                     try {
                         await session.withTransaction(async () => {
-                            const user =
-                                await User.findById(uid).session(session)
+                            const user = await User.findById(uid).session(session)
                             if (!user || !user.isActive) return
 
                             let userQueuedTotal = 0
@@ -82,29 +81,22 @@ const startDailyIncomeCron = () => {
 
                             for (const investment of userInvestments) {
                                 const income = investment.dailyIncome
-                                const isExpiring =
-                                    now >= investment.expirationDate
+                                const isExpiring = now >= investment.expirationDate
 
                                 // ── Per-investment forfeit check ───────────────
                                 if (investment.pendingIncome > 0) {
                                     const lastClaim = investment.lastIncomeClaim
-                                        ? new Date(
-                                              investment.lastIncomeClaim,
-                                          ).setHours(0, 0, 0, 0)
+                                        ? new Date(investment.lastIncomeClaim).setHours(0, 0, 0, 0)
                                         : null
 
-                                    if (
-                                        !lastClaim ||
-                                        lastClaim < lastValidWeekday.getTime()
-                                    ) {
+                                    if (!lastClaim || lastClaim < lastValidWeekday.getTime()) {
                                         console.log(
                                             `⚠️  Forfeiting $${investment.pendingIncome.toFixed(4)} ` +
-                                                `for investment ${investment._id} (user ${uid})`,
+                                            `for investment ${investment._id} (user ${uid})`,
                                         )
                                         user.pendingDailyIncome = Math.max(
                                             0,
-                                            (user.pendingDailyIncome || 0) -
-                                                investment.pendingIncome,
+                                            (user.pendingDailyIncome || 0) - investment.pendingIncome,
                                         )
                                         investment.pendingIncome = 0
                                         forfeited++
@@ -116,8 +108,7 @@ const startDailyIncomeCron = () => {
                                     if (investment.pendingIncome > 0) {
                                         user.pendingDailyIncome = Math.max(
                                             0,
-                                            (user.pendingDailyIncome || 0) -
-                                                investment.pendingIncome,
+                                            (user.pendingDailyIncome || 0) - investment.pendingIncome,
                                         )
                                         investment.pendingIncome = 0
                                         forfeited++
@@ -129,43 +120,25 @@ const startDailyIncomeCron = () => {
                                     investment.lastIncomeDate = now
                                     completed++
                                     await investment.save({ session })
-                                    // Pass investment._id so referral txns are traceable
-                                    await payReferralCommissions(
-                                        user._id,
-                                        income,
-                                        investment._id,
-                                        session,
-                                    )
                                     continue
                                 }
 
-                                // ── Queue today's income ───────────────────────
-                                investment.pendingIncome =
-                                    (investment.pendingIncome || 0) + income
+                                // ── Queue today's income — no referral commissions here ──
+                                // Commissions fire at claim time in investController so
+                                // referrers only earn on income the referee actually receives.
+                                investment.pendingIncome = (investment.pendingIncome || 0) + income
                                 investment.daysElapsed += 1
                                 investment.totalEarned += income
                                 investment.lastIncomeDate = now
                                 await investment.save({ session })
 
-                                user.pendingDailyIncome =
-                                    (user.pendingDailyIncome || 0) + income
+                                user.pendingDailyIncome = (user.pendingDailyIncome || 0) + income
                                 userQueuedTotal += income
                                 userQueuedCount++
                                 queued++
-
-                                // Pass investment._id so referral txns are traceable
-                                await payReferralCommissions(
-                                    user._id,
-                                    income,
-                                    investment._id,
-                                    session,
-                                )
                             }
 
-                            await user.save({
-                                validateBeforeSave: false,
-                                session,
-                            })
+                            await user.save({ validateBeforeSave: false, session })
 
                             // Notifications — fire-and-forget, not part of the transaction
                             if (userForfeitedCount > 0) {
@@ -193,10 +166,7 @@ const startDailyIncomeCron = () => {
                                     body:
                                         `$${userQueuedTotal.toFixed(4)} from ${userQueuedCount} investment${userQueuedCount > 1 ? 's' : ''} is ready to claim. ` +
                                         `Each investment must be claimed individually — unclaimed income is forfeited tomorrow morning.`,
-                                    metadata: {
-                                        total: userQueuedTotal,
-                                        count: userQueuedCount,
-                                    },
+                                    metadata: { total: userQueuedTotal, count: userQueuedCount },
                                 })
                             }
                         })
@@ -213,7 +183,7 @@ const startDailyIncomeCron = () => {
 
                 console.log(
                     `✅ Income queued: ${queued} | Completed: ${completed} | ` +
-                        `Forfeited: ${forfeited} | Failed (rolled back): ${failed}`,
+                    `Forfeited: ${forfeited} | Failed (rolled back): ${failed}`,
                 )
             } else {
                 console.log(
@@ -237,70 +207,6 @@ const startDailyIncomeCron = () => {
     })
 
     console.log('⏰ Daily income cron scheduled')
-}
-
-/**
- * Pay referral commissions up 3 tiers for a given income amount.
- *
- * @param {ObjectId} userId         - The investor whose income triggered commissions
- * @param {number}   incomeAmount   - The daily income amount that generates commissions
- * @param {ObjectId} investmentId   - The UserInvestment _id — stored as refId on each
- *                                    commission transaction so it's fully traceable
- * @param {ClientSession} session   - Mongoose session — runs inside the caller's transaction
- */
-const payReferralCommissions = async (
-    userId,
-    incomeAmount,
-    investmentId,
-    session,
-) => {
-    const TIERS = [{ percent: 0.03 }, { percent: 0.02 }, { percent: 0.01 }]
-    let currentUserId = userId
-
-    for (const tier of TIERS) {
-        const user = await User.findById(currentUserId).session(session)
-        if (!user || !user.referredBy) break
-
-        const referrer = await User.findById(user.referredBy).session(session)
-        if (!referrer || !referrer.isActive) break
-
-        const commission = +(incomeAmount * tier.percent).toFixed(6)
-        if (commission <= 0) continue
-
-        const balanceBefore = referrer.balance
-        referrer.balance += commission
-        referrer.totalEarnings += commission
-        referrer.todayEarnings += commission
-        await referrer.save({ validateBeforeSave: false, session })
-
-        await Transaction.create(
-            [
-                {
-                    user: referrer._id,
-                    type: 'in',
-                    category: 'referral_bonus',
-                    amountUSD: commission,
-                    balanceBefore,
-                    balanceAfter: referrer.balance,
-                    description: `Referral commission (${(tier.percent * 100).toFixed(0)}%) from daily income`,
-                    // Now fully traceable: which investment generated this commission
-                    refModel: 'UserInvestment',
-                    refId: investmentId,
-                },
-            ],
-            { session },
-        )
-
-        // Notify is fire-and-forget — not part of the transaction
-        notify(referrer._id, {
-            type: 'referral_bonus',
-            title: 'Referral Commission Earned 🤝',
-            body: `You earned $${commission.toFixed(6)} (${(tier.percent * 100).toFixed(0)}%) from your team's daily income.`,
-            metadata: { commission, percent: tier.percent * 100 },
-        })
-
-        currentUserId = referrer._id
-    }
 }
 
 module.exports = { startDailyIncomeCron }

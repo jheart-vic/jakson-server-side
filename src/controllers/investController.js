@@ -1,3 +1,4 @@
+const mongoose = require('mongoose')
 const Product = require('../models/Product')
 const UserInvestment = require('../models/UserInvestment')
 const Transaction = require('../models/Transaction')
@@ -33,7 +34,6 @@ const buyProduct = asyncHandler(async (req, res) => {
         return sendError(res, 'This product is sold out')
     }
 
-    // Check how many times user already bought this product
     const existingCount = await UserInvestment.countDocuments({
         user: userId,
         product: productId,
@@ -47,39 +47,23 @@ const buyProduct = asyncHandler(async (req, res) => {
         )
     }
 
-    // Check balance (free product is $0)
     const user = await User.findById(userId)
     if (product.amount > 0 && user.balance < product.amount) {
-        return sendError(
-            res,
-            'Insufficient balance. Please recharge your account.',
-        )
+        return sendError(res, 'Insufficient balance. Please recharge your account.')
     }
 
-    const totalInvestmentsBefore = await UserInvestment.countDocuments({
-        user: userId,
-    })
+    const totalInvestmentsBefore = await UserInvestment.countDocuments({ user: userId })
     const isFirstInvestment = totalInvestmentsBefore === 0
 
-    // Calculate expiration date
     const startDate = new Date()
     const expirationDate = new Date(startDate)
     expirationDate.setDate(expirationDate.getDate() + product.cycleDays)
 
-    // Deduct balance (if paid product)
     const balanceBefore = user.balance
-    if (product.amount > 0) {
-        user.balance -= product.amount
-    }
-
-    // Upgrade VIP level if needed
-    if (product.vipLevel > user.vipLevel) {
-        user.vipLevel = product.vipLevel
-    }
-
+    if (product.amount > 0) user.balance -= product.amount
+    if (product.vipLevel > user.vipLevel) user.vipLevel = product.vipLevel
     await user.save({ validateBeforeSave: false })
 
-    // Create investment record
     const investment = await UserInvestment.create({
         user: userId,
         product: productId,
@@ -95,13 +79,11 @@ const buyProduct = asyncHandler(async (req, res) => {
         expirationDate,
     })
 
-    // Reduce available units
     if (!product.isFree) {
         product.availableUnits -= 1
         await product.save()
     }
 
-    // Record transaction (out) for the investment
     if (product.amount > 0) {
         await Transaction.create({
             user: userId,
@@ -145,15 +127,13 @@ const buyProduct = asyncHandler(async (req, res) => {
                 balanceAfter: referrer.balance,
                 description: `Tier ${level} referral commission from ${user.phone} (first investment)`,
                 refModel: 'UserInvestment',
-                refId: userId,
+                refId: investment._id,
             })
             return true
         }
 
-        // Level 1: direct referrer (8%)
         if (user.referredBy) {
             await creditReferrer(user.referredBy, 8, 1)
-
             notify(user.referredBy, {
                 type: 'invitee',
                 title: 'Your Invitee Invested! 🎉',
@@ -161,18 +141,11 @@ const buyProduct = asyncHandler(async (req, res) => {
                 metadata: { investmentAmount: product.amount },
             })
 
-            // Level 2: referrer of the referrer (3%)
-            const level1Referrer = await User.findById(user.referredBy).select(
-                'referredBy',
-            )
-            if (level1Referrer && level1Referrer.referredBy) {
+            const level1Referrer = await User.findById(user.referredBy).select('referredBy')
+            if (level1Referrer?.referredBy) {
                 await creditReferrer(level1Referrer.referredBy, 3, 2)
-
-                // Level 3: next level (1%)
-                const level2Referrer = await User.findById(
-                    level1Referrer.referredBy,
-                ).select('referredBy')
-                if (level2Referrer && level2Referrer.referredBy) {
+                const level2Referrer = await User.findById(level1Referrer.referredBy).select('referredBy')
+                if (level2Referrer?.referredBy) {
                     await creditReferrer(level2Referrer.referredBy, 1, 3)
                 }
             }
@@ -183,15 +156,69 @@ const buyProduct = asyncHandler(async (req, res) => {
         type: 'system',
         title: 'Investment Activated 📈',
         body: `You invested $${product.amount.toFixed(2)} in ${product.name}. Daily income of $${product.dailyIncome.toFixed(4)} starts tomorrow.`,
-        metadata: {
-            productName: product.name,
-            amount: product.amount,
-            dailyIncome: product.dailyIncome,
-        },
+        metadata: { productName: product.name, amount: product.amount, dailyIncome: product.dailyIncome },
     })
 
     return sendSuccess(res, { investment }, 'Investment successful', 201)
 })
+
+/**
+ * Pay referral commissions up 3 tiers when a referee claims daily income.
+ * Runs inside the caller's MongoDB session so it rolls back if the claim fails.
+ *
+ * Tiers match the daily income commission rates (3% / 2% / 1%).
+ *
+ * @param {ObjectId}     userId       - The investor who just claimed
+ * @param {number}       claimAmount  - The amount they claimed
+ * @param {ObjectId}     investmentId - The UserInvestment _id for traceability
+ * @param {ClientSession} session     - Mongoose session from the claim transaction
+ */
+const payReferralCommissions = async (userId, claimAmount, investmentId, session) => {
+    const TIERS = [{ percent: 0.03 }, { percent: 0.02 }, { percent: 0.01 }]
+    let currentUserId = userId
+
+    for (const tier of TIERS) {
+        const user = await User.findById(currentUserId).session(session)
+        if (!user || !user.referredBy) break
+
+        const referrer = await User.findById(user.referredBy).session(session)
+        if (!referrer || !referrer.isActive) break
+
+        const commission = +(claimAmount * tier.percent).toFixed(6)
+        if (commission <= 0) continue
+
+        const balanceBefore = referrer.balance
+        referrer.balance += commission
+        referrer.totalEarnings += commission
+        referrer.todayEarnings += commission
+        await referrer.save({ validateBeforeSave: false, session })
+
+        await Transaction.create(
+            [{
+                user: referrer._id,
+                type: 'in',
+                category: 'referral_bonus',
+                amountUSD: commission,
+                balanceBefore,
+                balanceAfter: referrer.balance,
+                description: `Referral commission (${(tier.percent * 100).toFixed(0)}%) from daily income claim`,
+                refModel: 'UserInvestment',
+                refId: investmentId,
+            }],
+            { session },
+        )
+
+        // Fire-and-forget — notify outside the transaction concern
+        notify(referrer._id, {
+            type: 'referral_bonus',
+            title: 'Referral Commission Earned 🤝',
+            body: `You earned $${commission.toFixed(6)} (${(tier.percent * 100).toFixed(0)}%) from your team's daily income claim.`,
+            metadata: { commission, percent: tier.percent * 100 },
+        })
+
+        currentUserId = referrer._id
+    }
+}
 
 // @desc    Claim income for a specific investment
 // @route   POST /api/invest/:investmentId/claim
@@ -206,9 +233,7 @@ const claimInvestmentIncome = asyncHandler(async (req, res) => {
         status: 'in_progress',
     })
 
-    if (!investment) {
-        return sendError(res, 'Investment not found')
-    }
+    if (!investment) return sendError(res, 'Investment not found')
 
     if (!investment.pendingIncome || investment.pendingIncome <= 0) {
         return sendError(
@@ -232,37 +257,52 @@ const claimInvestmentIncome = asyncHandler(async (req, res) => {
     }
 
     const amount = investment.pendingIncome
-    const user = await User.findById(userId)
-    const balanceBefore = user.balance
+    let newBalance = 0
 
-    // Credit user
-    user.balance += amount
-    user.totalEarnings += amount
-    user.todayEarnings += amount
-    // Subtract from the aggregate pending pool (floor at 0 to avoid drift)
-    user.pendingDailyIncome = Math.max(
-        0,
-        (user.pendingDailyIncome || 0) - amount,
-    )
-    await user.save({ validateBeforeSave: false })
+    // Wrap claim + referral commissions in a single transaction so that
+    // if referral credit fails, the user's balance is also rolled back —
+    // no partial state where user was paid but referrers weren't or vice versa.
+    const session = await mongoose.startSession()
+    try {
+        await session.withTransaction(async () => {
+            const user = await User.findById(userId).session(session)
+            const balanceBefore = user.balance
 
-    // Clear this investment's pending income and record claim time
-    investment.pendingIncome = 0
-    investment.lastIncomeClaim = new Date()
-    await investment.save()
+            user.balance += amount
+            user.totalEarnings += amount
+            user.todayEarnings += amount
+            user.pendingDailyIncome = Math.max(0, (user.pendingDailyIncome || 0) - amount)
+            await user.save({ validateBeforeSave: false, session })
 
-    await Transaction.create({
-        user: userId,
-        type: 'in',
-        category: 'daily_income',
-        amountUSD: amount,
-        balanceBefore,
-        balanceAfter: user.balance,
-        description: `Daily income claimed for ${investment.productSnapshot.name} ($${amount.toFixed(4)})`,
-        refModel: 'UserInvestment',
-        refId: investment._id,
-    })
+            investment.pendingIncome = 0
+            investment.lastIncomeClaim = new Date()
+            await investment.save({ session })
 
+            await Transaction.create(
+                [{
+                    user: userId,
+                    type: 'in',
+                    category: 'daily_income',
+                    amountUSD: amount,
+                    balanceBefore,
+                    balanceAfter: user.balance,
+                    description: `Daily income claimed for ${investment.productSnapshot.name} ($${amount.toFixed(4)})`,
+                    refModel: 'UserInvestment',
+                    refId: investment._id,
+                }],
+                { session },
+            )
+
+            // Pay referral commissions now that real money has moved
+            await payReferralCommissions(userId, amount, investment._id, session)
+
+            newBalance = user.balance
+        })
+    } finally {
+        await session.endSession()
+    }
+
+    // Notifications outside the transaction — fire-and-forget
     notify(userId, {
         type: 'system',
         title: 'Income Claimed! 💰',
@@ -272,10 +312,7 @@ const claimInvestmentIncome = asyncHandler(async (req, res) => {
 
     return sendSuccess(
         res,
-        {
-            amountClaimed: amount,
-            newBalance: user.balance,
-        },
+        { amountClaimed: amount, newBalance },
         `$${amount.toFixed(4)} successfully credited!`,
     )
 })
@@ -307,9 +344,4 @@ const getMyInvestments = asyncHandler(async (req, res) => {
     })
 })
 
-module.exports = {
-    getProducts,
-    buyProduct,
-    claimInvestmentIncome,
-    getMyInvestments,
-}
+module.exports = { getProducts, buyProduct, claimInvestmentIncome, getMyInvestments }

@@ -20,6 +20,7 @@ const transactionSchema = new mongoose.Schema(
                 'investment', // buying a product (out)
                 'daily_income', // earning from investment (in)
                 'referral_bonus', // team referral earning (in)
+                'team_commission', // team commission (in)
                 'reward_code', // redeem bonus code (in)
                 'daily_checkin', // check-in reward (in)
                 'refund', // refund (in)

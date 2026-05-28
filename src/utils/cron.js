@@ -2,6 +2,7 @@ const cron = require('node-cron')
 const mongoose = require('mongoose')
 const UserInvestment = require('../models/UserInvestment')
 const User = require('../models/User')
+const AppSettings = require('../models/AppSettings')
 const { notify } = require('../utils/userNotify')
 
 /**
@@ -181,11 +182,30 @@ const runDailyIncome = async () => {
             console.log(`🌙 Weekend (${now.toDateString()}) – skipping income distribution.`)
         }
 
-        // Reset today → yesterday for all users (runs every day including weekends)
-        await User.updateMany({}, [
-            { $set: { yesterdayEarnings: '$todayEarnings', todayEarnings: 0 } },
-        ])
-        console.log('🔄 Reset todayEarnings → yesterdayEarnings')
+        // Reset today → yesterday for all users — runs once per day only.
+        // Stored in AppSettings so it's independent of any user document.
+        const todayMidnight = new Date()
+        todayMidnight.setHours(0, 0, 0, 0)
+
+        const lastReset = await AppSettings.get('last_earnings_reset')
+        const alreadyReset = lastReset
+            ? new Date(lastReset).setHours(0, 0, 0, 0) >= todayMidnight.getTime()
+            : false
+
+        if (!alreadyReset) {
+            await User.updateMany({}, [
+                {
+                    $set: {
+                        yesterdayEarnings: '$todayEarnings',
+                        todayEarnings: 0,
+                    },
+                },
+            ])
+            await AppSettings.set('last_earnings_reset', new Date().toISOString())
+            console.log('🔄 Reset todayEarnings → yesterdayEarnings')
+        } else {
+            console.log('⏭️  Earnings reset already done today — skipping')
+        }
     } catch (err) {
         console.error('❌ Daily income cron error:', err)
     }

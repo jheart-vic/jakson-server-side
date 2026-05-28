@@ -4,7 +4,7 @@ const { sendSuccess, sendError, paginate } = require('../utils/helpers');
 
 // Allowed type values (mirrors the model enum)
 const VALID_TYPES = [
-  'deposit', 'withdrawal', 'bonus_code', 'daily_income',
+  'deposit', 'withdrawal', 'bonus_code', 'daily_income','team_commission',
   'referral_bonus', 'invitee', 'checkin', 'admin', 'system',
 ];
 

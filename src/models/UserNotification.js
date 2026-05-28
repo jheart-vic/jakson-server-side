@@ -16,6 +16,7 @@ const userNotificationSchema = new mongoose.Schema(
         'bonus_code',     // bonus code redeemed
         'daily_income',   // daily investment income (summary)
         'referral_bonus', // commission earned when referral earns
+        'team_commission',  // daily income commission ← NEW
         'invitee',        // someone you referred made their first investment
         'checkin',        // daily check-in reward
         'admin',          // admin credited or deducted wallet

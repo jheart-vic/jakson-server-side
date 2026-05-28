@@ -174,7 +174,11 @@ const buyProduct = asyncHandler(async (req, res) => {
  * @param {ClientSession} session     - Mongoose session from the claim transaction
  */
 const payReferralCommissions = async (userId, claimAmount, investmentId, session) => {
-    const TIERS = [{ percent: 0.03 }, { percent: 0.02 }, { percent: 0.01 }]
+    const TIERS = [
+        { percent: 0.03, label: '3%' },
+        { percent: 0.02, label: '2%' },
+        { percent: 0.01, label: '1%' },
+    ]
     let currentUserId = userId
 
     for (const tier of TIERS) {
@@ -197,23 +201,22 @@ const payReferralCommissions = async (userId, claimAmount, investmentId, session
             [{
                 user: referrer._id,
                 type: 'in',
-                category: 'referral_bonus',
+                category: 'team_commission',
                 amountUSD: commission,
                 balanceBefore,
                 balanceAfter: referrer.balance,
-                description: `Referral commission (${(tier.percent * 100).toFixed(0)}%) from daily income claim`,
+                description: `Team commission (${tier.label}) from $${claimAmount.toFixed(4)} daily income claim`,
                 refModel: 'UserInvestment',
                 refId: investmentId,
             }],
             { session },
         )
 
-        // Fire-and-forget — notify outside the transaction concern
         notify(referrer._id, {
-            type: 'referral_bonus',
-            title: 'Referral Commission Earned 🤝',
-            body: `You earned $${commission.toFixed(6)} (${(tier.percent * 100).toFixed(0)}%) from your team's daily income claim.`,
-            metadata: { commission, percent: tier.percent * 100 },
+            type: 'team_commission',
+            title: 'Team Commission Earned 🤝',
+            body: `You earned $${commission.toFixed(6)} (${tier.label}) team commission from your referral's daily income claim.`,
+            metadata: { commission, percent: tier.label },
         })
 
         currentUserId = referrer._id

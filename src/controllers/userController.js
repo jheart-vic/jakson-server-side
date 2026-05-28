@@ -186,25 +186,27 @@ const getTierMembers = asyncHandler(async (req, res) => {
         investmentToMember[inv._id.toString()] = inv.user.toString()
     }
 
-    // Sum referral_bonus transactions earned by THIS user, grouped by source investment
+    // Sum ALL commission types earned by THIS user from these members' investments:
+    // - referral_bonus: first-investment commission (8%/3%/1%)
+    // - team_commission: daily income commission (3%/2%/1%)
     const commissions = await Transaction.aggregate([
         {
             $match: {
                 user: userId,
-                category: 'referral_bonus',
+                category: { $in: ['referral_bonus', 'team_commission'] },
                 refModel: 'UserInvestment',
                 refId: { $in: memberInvestments.map((i) => i._id) },
             },
         },
         {
             $group: {
-                _id: '$refId',   // investmentId
+                _id: '$refId', // group by source investment
                 total: { $sum: '$amountUSD' },
             },
         },
     ])
 
-    // Roll up: member → total earned from that member
+    // Roll up: member → total commission earned from that member
     const earnedByMember = {}
     for (const row of commissions) {
         const memberId = investmentToMember[row._id.toString()]
@@ -219,7 +221,7 @@ const getTierMembers = asyncHandler(async (req, res) => {
             _id: m._id,
             displayName: m.displayName(),
             createdAt: m.createdAt,
-            totalInvested: earnedByMember[m._id.toString()] || 0, // what YOU earned from them
+            totalEarned: earnedByMember[m._id.toString()] || 0, // total YOU earned from this member
             vipLevel: m.vipLevel,
         })),
         pagination: { total, page: pg, limit: lim, pages: Math.ceil(total / lim) },

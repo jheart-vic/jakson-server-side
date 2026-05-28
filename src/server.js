@@ -10,23 +10,18 @@ const swaggerDefinition = require('./config/swagger');
 const connectDB = require('./config/db');
 const routes = require('./routes/index');
 const { errorHandler } = require('./middleware/errorHandler');
-const { startDailyIncomeCron } = require('./utils/cron');
+const { startDailyIncomeCron, runDailyIncome } = require('./utils/cron');
 const cookieParser = require('cookie-parser')
 
 const app = express();
 
 // ─── Connect Database ────────────────────
 connectDB();
-app.set('trust proxy', 1)
+
 // ─── Security Middleware ─────────────────
 app.use(helmet());
 app.use(cors({
-  origin: [
-    'https://www.luminos-energy.com',
-    'https://luminos-energy.com',
-    'http://localhost:3000',
-    'https://jakson-client-side.vercel.app'
-  ],
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true,
 }))
 app.use(cookieParser())
@@ -83,8 +78,27 @@ const server = app.listen(PORT, () => {
 ─────────────────────────────────`);
 
   // Start cron jobs
-  startDailyIncomeCron();
-});
+  startDailyIncomeCron()
+
+  // ── Missed-run recovery ──────────────────────────────────────────────
+  // Render free tier spins down when idle and may restart after 8 AM,
+  // missing the scheduled cron window. On every weekday startup after
+  // 8 AM, run income distribution immediately. The skip guard inside
+  // runDailyIncome (lastIncomeDate === today) prevents double-processing
+  // if the cron already ran earlier that day.
+  const now = new Date()
+  const isWeekday = now.getDay() >= 1 && now.getDay() <= 5
+  const isAfter8AM = now.getHours() >= 8
+
+  if (isWeekday && isAfter8AM) {
+    console.log('🔄 Server started after 8 AM — checking for missed income distribution...')
+    setTimeout(() => {
+      runDailyIncome().catch((err) =>
+        console.error('❌ Startup income recovery failed:', err.message)
+      )
+    }, 3000) // 3s delay ensures DB connection is fully ready
+  }
+})
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {

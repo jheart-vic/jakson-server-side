@@ -88,10 +88,10 @@ const server = app.listen(PORT, () => {
   // if the cron already ran earlier that day.
   const now = new Date()
   const isWeekday = now.getDay() >= 1 && now.getDay() <= 5
-  const isAfter8AM = now.getHours() >= 8
+  const isAfter7AM = now.getHours() >= 7
 
-  if (isWeekday && isAfter8AM) {
-    console.log('🔄 Server started after 8 AM — checking for missed income distribution...')
+  if (isWeekday && isAfter7AM) {
+    console.log('🔄 Server started after 7 AM — checking for missed income distribution...')
     setTimeout(() => {
       runDailyIncome().catch((err) =>
         console.error('❌ Startup income recovery failed:', err.message)

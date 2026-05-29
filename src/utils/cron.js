@@ -212,7 +212,7 @@ const runDailyIncome = async () => {
 }
 
 const startDailyIncomeCron = () => {
-    const schedule = process.env.CRON_DAILY_INCOME || '0 8 * * 1-5'
+    const schedule = process.env.CRON_DAILY_INCOME || '0 7 * * 1-5'
 
     cron.schedule(schedule, async () => {
         console.log(`🌞 [${new Date().toISOString()}] Running daily income cron...`)

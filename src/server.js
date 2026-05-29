@@ -14,6 +14,7 @@ const { startDailyIncomeCron, runDailyIncome } = require('./utils/cron');
 const cookieParser = require('cookie-parser')
 
 const app = express();
+app.set('trust proxy', 1); // trust first proxy (if behind a proxy like Render)
 
 // ─── Connect Database ────────────────────
 connectDB();
@@ -81,7 +82,7 @@ const server = app.listen(PORT, () => {
   startDailyIncomeCron()
 
   // ── Missed-run recovery ──────────────────────────────────────────────
-  // Render free tier spins down when idle and may restart after 8 AM,
+  // Render free tier spins down when idle and may restart after 7 AM,
   // missing the scheduled cron window. On every weekday startup after
   // 8 AM, run income distribution immediately. The skip guard inside
   // runDailyIncome (lastIncomeDate === today) prevents double-processing

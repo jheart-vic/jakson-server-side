@@ -8,7 +8,7 @@ const {
   createProduct, getAllProducts, updateProduct, deleteProduct,
   getAllUsers, getUserDetail, suspendUser, unsuspendUser, loginAsUser,
   creditUserWallet, deductUserWallet, getDashboard, assignRole,
-  createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund,
+  createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund, deactivateWealthFund,
   createBonusCode, getAllBonusCodes, toggleBonusCode, deleteBonusCode,
 } = require('../controllers/adminController');
 
@@ -57,6 +57,7 @@ router.put('/withdraw/:id/reject',   rejectWithdrawal);
 router.post  ('/wealth-funds',     createWealthFund);
 router.get   ('/wealth-funds',     getAllWealthFunds);
 router.put   ('/wealth-funds/:id', updateWealthFund);
+router.patch('/wealth-funds/:id/deactivate', deactivateWealthFund);
 router.delete('/wealth-funds/:id', deleteWealthFund);
 
 // ── Bonus Codes ───────────────────────────────────────────

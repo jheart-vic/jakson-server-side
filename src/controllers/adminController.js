@@ -399,10 +399,10 @@ const creditUserWallet = asyncHandler(async (req, res) => {
     )
 
     notify(user._id, {
-      type: 'admin',
-      title: 'Wallet Credited 💰',
-      body: `$${amountUSD.toFixed(2)} has been added to your account by admin. Reason: ${reason}.`,
-      metadata: { amountUSD, reason },
+        type: 'admin',
+        title: 'Wallet Credited 💰',
+        body: `$${amountUSD.toFixed(2)} has been added to your account by admin. Reason: ${reason}.`,
+        metadata: { amountUSD, reason },
     })
     return sendSuccess(
         res,
@@ -415,7 +415,6 @@ const creditUserWallet = asyncHandler(async (req, res) => {
         },
         `$${amountUSD} credited to ${user.maskedPhone()} successfully`,
     )
-
 })
 
 // @desc    Deduct from a user's wallet
@@ -463,10 +462,10 @@ const deductUserWallet = asyncHandler(async (req, res) => {
     )
 
     notify(user._id, {
-      type: 'admin',
-      title: 'Wallet Adjustment',
-      body: `$${amountUSD.toFixed(2)} has been deducted from your account by admin. Reason: ${reason}.`,
-      metadata: { amountUSD, reason },
+        type: 'admin',
+        title: 'Wallet Adjustment',
+        body: `$${amountUSD.toFixed(2)} has been deducted from your account by admin. Reason: ${reason}.`,
+        metadata: { amountUSD, reason },
     })
     return sendSuccess(
         res,
@@ -479,8 +478,6 @@ const deductUserWallet = asyncHandler(async (req, res) => {
         },
         `$${amountUSD} deducted from ${user.maskedPhone()} successfully`,
     )
-
-
 })
 
 // ═══════════════════════════════════════════════════════════
@@ -582,113 +579,157 @@ const assignRole = asyncHandler(async (req, res) => {
     )
 })
 
-
 // ============================================================
 // WEALTH FUND MANAGEMENT (Admin)
 // ============================================================
 
 const WealthFund = require('../models/WealthFund')
+const UserWealthFund = require('../models/UserWealthFund')
 
 // @desc    Create a new wealth fund
 // @route   POST /api/admin/wealth-funds
 // @access  Admin
 const createWealthFund = asyncHandler(async (req, res) => {
-  const {
-    name,
-    image,
-    amount,
-    maturityAmount,
-    durationType,
-    durationDays,
-    maxUnits,
-    availableUnits,
-    isActive,
-    sortOrder,
-  } = req.body
+    const {
+        name,
+        image,
+        amount,
+        maturityAmount,
+        durationType,
+        durationDays,
+        maxUnits,
+        availableUnits,
+        isActive,
+        sortOrder,
+    } = req.body
 
-  if (!name || amount == null || maturityAmount == null || !durationType || !durationDays) {
-    return sendError(res, 'Missing required fields: name, amount, maturityAmount, durationType, durationDays')
-  }
+    if (
+        !name ||
+        amount == null ||
+        maturityAmount == null ||
+        !durationType ||
+        !durationDays
+    ) {
+        return sendError(
+            res,
+            'Missing required fields: name, amount, maturityAmount, durationType, durationDays',
+        )
+    }
 
-  const wealthFund = await WealthFund.create({
-    name,
-    image: image || null,
-    amount,
-    maturityAmount,
-    durationType,
-    durationDays,
-    maxUnits: maxUnits ?? 1,
-    availableUnits: availableUnits ?? 999999,
-    isActive: isActive ?? true,
-    sortOrder: sortOrder ?? 0,
-  })
+    const wealthFund = await WealthFund.create({
+        name,
+        image: image || null,
+        amount,
+        maturityAmount,
+        durationType,
+        durationDays,
+        maxUnits: maxUnits ?? 1,
+        availableUnits: availableUnits ?? 999999,
+        isActive: isActive ?? true,
+        sortOrder: sortOrder ?? 0,
+    })
 
-  return sendSuccess(res, { wealthFund }, 'Wealth fund created successfully', 201)
+    return sendSuccess(
+        res,
+        { wealthFund },
+        'Wealth fund created successfully',
+        201,
+    )
 })
 
 // @desc    Get all wealth funds (admin) – includes inactive
 // @route   GET /api/admin/wealth-funds
 // @access  Admin
 const getAllWealthFunds = asyncHandler(async (req, res) => {
-  const { status } = req.query // ?status=active | inactive | all
-  const filter = {}
-  if (status === 'active') filter.isActive = true
-  if (status === 'inactive') filter.isActive = false
+    const { status } = req.query // ?status=active | inactive | all
+    const filter = {}
+    if (status === 'active') filter.isActive = true
+    if (status === 'inactive') filter.isActive = false
 
-  const funds = await WealthFund.find(filter).sort({ sortOrder: 1, amount: 1 })
-  return sendSuccess(res, { funds, total: funds.length })
+    const funds = await WealthFund.find(filter).sort({
+        sortOrder: 1,
+        amount: 1,
+    })
+    return sendSuccess(res, { funds, total: funds.length })
 })
 
 // @desc    Update a wealth fund
 // @route   PUT /api/admin/wealth-funds/:id
 // @access  Admin
 const updateWealthFund = asyncHandler(async (req, res) => {
-  const allowed = [
-    'name',
-    'image',
-    'amount',
-    'maturityAmount',
-    'durationType',
-    'durationDays',
-    'maxUnits',
-    'availableUnits',
-    'isActive',
-    'sortOrder',
-  ]
+    const allowed = [
+        'name',
+        'image',
+        'amount',
+        'maturityAmount',
+        'durationType',
+        'durationDays',
+        'maxUnits',
+        'availableUnits',
+        'isActive',
+        'sortOrder',
+    ]
 
-  const updates = {}
-  allowed.forEach(field => {
-    if (req.body[field] !== undefined) updates[field] = req.body[field]
-  })
+    const updates = {}
+    allowed.forEach((field) => {
+        if (req.body[field] !== undefined) updates[field] = req.body[field]
+    })
 
-  if (Object.keys(updates).length === 0) {
-    return sendError(res, 'No valid fields provided to update')
-  }
+    if (Object.keys(updates).length === 0) {
+        return sendError(res, 'No valid fields provided to update')
+    }
 
-  const fund = await WealthFund.findByIdAndUpdate(
-    req.params.id,
-    { $set: updates },
-    { new: true, runValidators: true }
-  )
+    const fund = await WealthFund.findByIdAndUpdate(
+        req.params.id,
+        { $set: updates },
+        { new: true, runValidators: true },
+    )
 
-  if (!fund) return sendError(res, 'Wealth fund not found', 404)
+    if (!fund) return sendError(res, 'Wealth fund not found', 404)
 
-  return sendSuccess(res, { wealthFund: fund }, 'Wealth fund updated successfully')
+    return sendSuccess(
+        res,
+        { wealthFund: fund },
+        'Wealth fund updated successfully',
+    )
 })
 
 // @desc    Soft delete a wealth fund (set isActive = false)
 // @route   DELETE /api/admin/wealth-funds/:id
 // @access  Admin
+const deactivateWealthFund = asyncHandler(async (req, res) => {
+    const fund = await WealthFund.findByIdAndUpdate(
+        req.params.id,
+        { isActive: false },
+        { new: true },
+    )
+
+    if (!fund) return sendError(res, 'Wealth fund not found', 404)
+
+    return sendSuccess(
+        res,
+        { wealthFund: fund },
+        'Wealth fund deactivated successfully',
+    )
+})
 const deleteWealthFund = asyncHandler(async (req, res) => {
-  const fund = await WealthFund.findByIdAndUpdate(
-    req.params.id,
-    { isActive: false },
-    { new: true }
-  )
+    const fund = await WealthFund.findByIdAndDelete(req.params.id)
 
-  if (!fund) return sendError(res, 'Wealth fund not found', 404)
+//clear all relatedactive investments
+    await UserWealthFund.updateMany(
+        { wealthFund: fund._id, status: 'in_progress' },
+        { status: 'cancelled', isClaimed: true },
+    )
 
-  return sendSuccess(res, { wealthFund: fund }, 'Wealth fund deactivated successfully')
+    if (!fund) return sendError(res, 'Wealth fund not found', 404);
+// console.log("fund id", fund.id);
+// console.log("fund _id", fund._id);
+
+    return sendSuccess(
+        res,
+        { wealthFund: fund },
+        'Wealth fund deleted successfully',
+    )
 })
 
 // ═══════════════════════════════════════════════════════════
@@ -698,93 +739,100 @@ const deleteWealthFund = asyncHandler(async (req, res) => {
 const BonusCode = require('../models/BonusCode')
 const crypto = require('crypto')
 
+
 // Auto-generate a unique uppercase alphanumeric code
 const generateBonusCode = (length = 8) => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  let result = ''
-  const bytes = crypto.randomBytes(length)
-  for (let i = 0; i < length; i++) {
-    result += chars[bytes[i] % chars.length]
-  }
-  return result
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    let result = ''
+    const bytes = crypto.randomBytes(length)
+    for (let i = 0; i < length; i++) {
+        result += chars[bytes[i] % chars.length]
+    }
+    return result
 }
 
 // @desc    Create a bonus code
 // @route   POST /api/admin/bonus-codes
 // @access  Admin
 const createBonusCode = asyncHandler(async (req, res) => {
-  const { code, amountUSD, maxUses, expiresAt, autoGenerate } = req.body
+    const { code, amountUSD, maxUses, expiresAt, autoGenerate } = req.body
 
-  if (!amountUSD || amountUSD <= 0) {
-    return sendError(res, 'amountUSD must be a positive number')
-  }
+    if (!amountUSD || amountUSD <= 0) {
+        return sendError(res, 'amountUSD must be a positive number')
+    }
 
-  // Use provided code or auto-generate one that doesn't collide
-  let finalCode = autoGenerate || !code
-    ? null
-    : code.toUpperCase().trim()
+    // Use provided code or auto-generate one that doesn't collide
+    let finalCode = autoGenerate || !code ? null : code.toUpperCase().trim()
 
-  if (!finalCode) {
-    let attempts = 0
-    do {
-      finalCode = generateBonusCode(8)
-      const exists = await BonusCode.findOne({ code: finalCode })
-      if (!exists) break
-      finalCode = null
-      attempts++
-    } while (attempts < 10)
+    if (!finalCode) {
+        let attempts = 0
+        do {
+            finalCode = generateBonusCode(8)
+            const exists = await BonusCode.findOne({ code: finalCode })
+            if (!exists) break
+            finalCode = null
+            attempts++
+        } while (attempts < 10)
 
-    if (!finalCode) return sendError(res, 'Could not generate a unique code. Try again.')
-  }
+        if (!finalCode)
+            return sendError(
+                res,
+                'Could not generate a unique code. Try again.',
+            )
+    }
 
-  const bonusCode = await BonusCode.create({
-    code: finalCode,
-    amountUSD,
-    maxUses: maxUses ?? 1,         // -1 = unlimited
-    expiresAt: expiresAt || null,
-    isActive: true,
-    createdBy: req.user._id,
-  })
+    const bonusCode = await BonusCode.create({
+        code: finalCode,
+        amountUSD,
+        maxUses: maxUses ?? 1, // -1 = unlimited
+        expiresAt: expiresAt || null,
+        isActive: true,
+        createdBy: req.user._id,
+    })
 
-  return sendSuccess(res, { bonusCode }, 'Bonus code created', 201)
+    return sendSuccess(res, { bonusCode }, 'Bonus code created', 201)
 })
 
 // @desc    Get all bonus codes (admin)
 // @route   GET /api/admin/bonus-codes
 // @access  Admin
 const getAllBonusCodes = asyncHandler(async (req, res) => {
-  const { status } = req.query // active | inactive
-  const filter = {}
-  if (status === 'active') filter.isActive = true
-  if (status === 'inactive') filter.isActive = false
+    const { status } = req.query // active | inactive
+    const filter = {}
+    if (status === 'active') filter.isActive = true
+    if (status === 'inactive') filter.isActive = false
 
-  const codes = await BonusCode.find(filter)
-    .sort({ createdAt: -1 })
-    .populate('createdBy', 'phone')
+    const codes = await BonusCode.find(filter)
+        .sort({ createdAt: -1 })
+        .populate('createdBy', 'phone')
 
-  return sendSuccess(res, { codes, total: codes.length })
+    return sendSuccess(res, { codes, total: codes.length })
 })
 
 // @desc    Toggle active/inactive
 // @route   PUT /api/admin/bonus-codes/:id/toggle
 // @access  Admin
 const toggleBonusCode = asyncHandler(async (req, res) => {
-  const bc = await BonusCode.findById(req.params.id)
-  if (!bc) return sendError(res, 'Bonus code not found', 404)
+    const bc = await BonusCode.findById(req.params.id)
+    if (!bc) return sendError(res, 'Bonus code not found', 404)
 
-  bc.isActive = !bc.isActive
-  await bc.save()
+    bc.isActive = !bc.isActive
+    await bc.save()
 
-  return sendSuccess(res, { bonusCode: bc }, `Code ${bc.isActive ? 'activated' : 'deactivated'}`)
+    return sendSuccess(
+        res,
+        { bonusCode: bc },
+        `Code ${bc.isActive ? 'activated' : 'deactivated'}`,
+    )
 })
 
 // @desc    Delete a bonus code (hard delete)
 // @route   DELETE /api/admin/bonus-codes/:id
 // @access  Admin
 const deleteBonusCode = asyncHandler(async (req, res) => {
-  const bc = await BonusCode.findByIdAndDelete(req.params.id)
-  if (!bc) return sendError(res, 'Bonus code not found', 404)
-  return sendSuccess(res, {}, 'Bonus code deleted')
+    const bc = await BonusCode.findByIdAndDelete(req.params.id)
+    if (!bc) return sendError(res, 'Bonus code not found', 404)
+    return sendSuccess(res, {}, 'Bonus code deleted')
 })
 
 // (Optional) Hard delete – if needed, but soft delete is safer
@@ -808,13 +856,14 @@ module.exports = {
     // Roles
     assignRole,
 
-  createWealthFund,
-  getAllWealthFunds,
-  updateWealthFund,
-  deleteWealthFund,
-  // Bonus Codes
-  createBonusCode,
-  getAllBonusCodes,
-  toggleBonusCode,
-  deleteBonusCode,
+    createWealthFund,
+    getAllWealthFunds,
+    updateWealthFund,
+    deactivateWealthFund,
+    deleteWealthFund,
+    // Bonus Codes
+    createBonusCode,
+    getAllBonusCodes,
+    toggleBonusCode,
+    deleteBonusCode,
 }

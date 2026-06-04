@@ -122,15 +122,68 @@ const updateProduct = asyncHandler(async (req, res) => {
 // @route   DELETE /api/admin/products/:id
 // @access  Admin
 const deleteProduct = asyncHandler(async (req, res) => {
-    const product = await Product.findByIdAndUpdate(
-        req.params.id,
-        { isActive: false },
-        { new: true },
-    )
-
+    const product = await Product.findById(req.params.id)
     if (!product) return sendError(res, 'Product not found', 404)
 
-    return sendSuccess(res, { product }, 'Product deactivated successfully')
+    // Find all investments tied to this product
+    const investments = await UserInvestment.find({ product: product._id })
+    const userIds = [...new Set(investments.map((i) => i.user.toString()))]
+
+    // Refund users with in-progress investments
+    const inProgress = investments.filter((i) => i.status === 'in_progress')
+    await Promise.all(
+        inProgress.map(async (inv) => {
+            const refundAmount =
+                inv.amountPaid ?? inv.productSnapshot?.amount ?? 0
+            if (refundAmount > 0) {
+                await User.findByIdAndUpdate(inv.user, {
+                    $inc: { balance: refundAmount },
+                })
+                await Transaction.create({
+                    user: inv.user,
+                    type: 'in',
+                    category: 'refund',
+                    amountUSD: refundAmount,
+                    description: `Refund — product "${product.name}" was deleted by admin`,
+                })
+            }
+        }),
+    )
+
+    // Cancel all investments for this product
+    await UserInvestment.updateMany(
+        { product: product._id },
+        { status: 'cancelled', isClaimed: true },
+    )
+
+    // Notify affected users
+    await Promise.all(
+        userIds.map(
+            (uid) =>
+                notify(uid, 'investment_cancelled', {
+                    message: `Your investment in "${product.name}" was cancelled and refunded due to product removal.`,
+                }).catch(() => {}), // don't let a notification failure abort the delete
+        ),
+    )
+
+    // Hard delete the product
+    await product.deleteOne()
+
+    console.log(
+        `[ADMIN] Product "${product.name}" (${product._id}) deleted by admin ${req.user._id}. ` +
+            `${inProgress.length} investments cancelled, ${userIds.length} users affected.`,
+    )
+
+    return sendSuccess(
+        res,
+        {
+            deletedProduct: product.name,
+            investmentsCancelled: investments.length,
+            usersAffected: userIds.length,
+            refundsIssued: inProgress.length,
+        },
+        'Product and all associated investments deleted. Affected users refunded.',
+    )
 })
 
 // ═══════════════════════════════════════════════════════════
@@ -341,6 +394,16 @@ const loginAsUser = asyncHandler(async (req, res) => {
         `[ADMIN] Admin ${req.user._id} is impersonating user ${targetUser.phone} (${targetUser._id})`,
     )
 
+    // Overwrite the session cookie so all subsequent withCredentials
+    // requests are authenticated as the target user, not the admin
+    const cookieName = process.env.JWT_COOKIE_NAME || 'access_token'
+    res.cookie(cookieName, impersonationToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 2 * 60 * 60 * 1000, // 2 h — matches token expiry
+    })
+
     return sendSuccess(
         res,
         {
@@ -353,9 +416,50 @@ const loginAsUser = asyncHandler(async (req, res) => {
                 balance: targetUser.balance,
                 vipLevel: targetUser.vipLevel,
                 referralCode: targetUser.referralCode,
+                role: targetUser.role,
+                isActive: targetUser.isActive,
             },
         },
         `Now logged in as ${targetUser.maskedPhone()}. Token valid for 2 hours.`,
+    )
+})
+
+// @desc    Exit impersonation — restore the admin’s own session cookie
+// @route   POST /api/admin/users/exit-impersonation
+// @access  Called while impersonation cookie is active
+const exitImpersonation = asyncHandler(async (req, res) => {
+    const adminId = req.adminId
+    if (!adminId) return sendError(res, 'Not currently impersonating', 400)
+
+    const admin = await User.findById(adminId).select(
+        '-password -withdrawPassword -securityAnswer',
+    )
+    if (!admin) return sendError(res, 'Admin user not found', 404)
+
+    const adminToken = jwt.sign({ id: admin._id }, process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    })
+
+    const cookieName = process.env.JWT_COOKIE_NAME || 'access_token'
+    res.cookie(cookieName, adminToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+    })
+
+    console.log(`[ADMIN] Admin ${admin._id} exited impersonation`)
+
+    return sendSuccess(
+        res,
+        {
+            admin: {
+                id: admin._id,
+                phone: admin.maskedPhone(),
+                role: admin.role,
+            },
+        },
+        'Returned to admin session',
     )
 })
 
@@ -715,15 +819,15 @@ const deactivateWealthFund = asyncHandler(async (req, res) => {
 const deleteWealthFund = asyncHandler(async (req, res) => {
     const fund = await WealthFund.findByIdAndDelete(req.params.id)
 
-//clear all relatedactive investments
+    //clear all relatedactive investments
     await UserWealthFund.updateMany(
         { wealthFund: fund._id, status: 'in_progress' },
         { status: 'cancelled', isClaimed: true },
     )
 
-    if (!fund) return sendError(res, 'Wealth fund not found', 404);
-// console.log("fund id", fund.id);
-// console.log("fund _id", fund._id);
+    if (!fund) return sendError(res, 'Wealth fund not found', 404)
+    // console.log("fund id", fund.id);
+    // console.log("fund _id", fund._id);
 
     return sendSuccess(
         res,
@@ -738,7 +842,6 @@ const deleteWealthFund = asyncHandler(async (req, res) => {
 
 const BonusCode = require('../models/BonusCode')
 const crypto = require('crypto')
-
 
 // Auto-generate a unique uppercase alphanumeric code
 const generateBonusCode = (length = 8) => {
@@ -848,6 +951,7 @@ module.exports = {
     suspendUser,
     unsuspendUser,
     loginAsUser,
+    exitImpersonation,
     // Wallet
     creditUserWallet,
     deductUserWallet,

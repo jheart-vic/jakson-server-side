@@ -10,12 +10,14 @@ const {
   creditUserWallet, deductUserWallet, getDashboard, assignRole,
   createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund, deactivateWealthFund,
   createBonusCode, getAllBonusCodes, toggleBonusCode, deleteBonusCode,
+  exitImpersonation,
 } = require('../controllers/adminController');
 
 const AppSettings = require('../models/AppSettings');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { sendSuccess } = require('../utils/helpers');
 const { createNotification, getAllNotifications, updateNotification, deleteNotification } = require('../controllers/notificationController');
+router.post('/users/exit-impersonation', protect, exitImpersonation);
 
 
 router.use(protect, adminOnly);

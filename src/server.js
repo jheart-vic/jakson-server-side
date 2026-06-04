@@ -10,7 +10,7 @@ const swaggerDefinition = require('./config/swagger');
 const connectDB = require('./config/db');
 const routes = require('./routes/index');
 const { errorHandler } = require('./middleware/errorHandler');
-const { startDailyIncomeCron, runDailyIncome } = require('./utils/cron');
+const {  runDailyIncome,  startCrons } = require('./utils/cron');
 const cookieParser = require('cookie-parser')
 
 const app = express();
@@ -79,7 +79,7 @@ const server = app.listen(PORT, () => {
 ─────────────────────────────────`);
 
   // Start cron jobs
-  startDailyIncomeCron()
+startCrons()
 
   // ── Missed-run recovery ──────────────────────────────────────────────
   // Render free tier spins down when idle and may restart after 7 AM,

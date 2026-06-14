@@ -44,7 +44,12 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
 // ─── Request Middleware ──────────────────
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // Keep the raw request text so payment-gateway callback signatures can be
+  // verified against the exact bytes sent (preserves decimals like "100.00").
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 if (process.env.NODE_ENV === 'development') {

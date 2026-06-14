@@ -67,9 +67,22 @@ const paginate = (page = 1, limit = 20) => {
   return { skip: (p - 1) * l, limit: l, page: p }
 }
 
+  function getClientIp(req) {
+    const xff = (req.headers['x-forwarded-for'] || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    let ip = xff[0] || req.ip || ''
+    ip = ip.replace(/^::ffff:/i, '')          // strip IPv6-mapped IPv4 prefix
+    if (ip === '::1' || ip === '') ip = '127.0.0.1'  // IPv6 loopback -> IPv4
+    const isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(ip)
+    if (!isIpv4) ip = '127.0.0.1'             // gateway expects IPv4
+    return ip
+  }
+
 module.exports = {
   sendSuccess, sendError,
   generateJWT, generateAccessToken, generateRefreshToken,
-  setAuthCookies, clearAuthCookies,
+  setAuthCookies, clearAuthCookies,getClientIp, isProd,
   calcWithdrawalFee, paginate,
 }

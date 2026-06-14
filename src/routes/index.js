@@ -9,9 +9,10 @@ const userRoutes = require('./user');
 const adminRoutes = require('./admin');
 const wealthFundRoutes = require('./wealthFund');
 const settingsRoutes = require('./settings');
-
+const paymentRoutes = require('./payment');
 
 router.use('/auth', authRoutes);
+router.use('/payment', paymentRoutes);
 router.use('/invest', investRoutes);
 router.use('/deposit', depositRoutes);
 router.use('/withdraw', withdrawRoutes);

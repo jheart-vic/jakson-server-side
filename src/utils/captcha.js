@@ -53,7 +53,7 @@ const generateCaptcha = () => {
 
   // Return SVG as a data URI so the frontend can render it in an <img> tag
   const imageDataUri = `data:image/svg+xml;base64,${Buffer.from(captcha.data).toString('base64')}`;
-
+console.log('Captcha Answer:', captcha.text.toLowerCase());
   return { captchaId, image: imageDataUri };
 };
 

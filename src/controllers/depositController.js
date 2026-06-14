@@ -81,8 +81,7 @@ const createDeposit = asyncHandler(async (req, res) => {
     const result = await gateway.createCollectionOrder({
       merchantOrderId: deposit._id.toString(),
       amount: amountNGN,
-      ip: '8.8.8.8',
-      // ip: getClientIp(req),
+      ip: getClientIp(req),
     });
 
     if (!result.ok || !result.payUrl) {

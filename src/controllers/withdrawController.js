@@ -185,13 +185,13 @@ const createWithdrawal = asyncHandler(async (req, res) => {
       bnkCode,
       ip: clientIp(req),
     });
+    return sendError(res, `Withdrawal could not be processed: ${reason}`);
 
     if (!result.ok) {
       const reason = (result.raw && result.raw.msg) || 'Gateway rejected the payout';
       await refundWithdrawal(withdrawal, reason);
-      return sendError(res, `Withdrawal could not be processed: ${reason}`);
     }
-
+console.log('PAYOUT RESPONSE:', JSON.stringify(result.raw));   // <-- add this
     withdrawal.status = 'processing';
     await withdrawal.save();
   } catch (err) {

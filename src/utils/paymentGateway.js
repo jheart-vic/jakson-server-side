@@ -22,16 +22,12 @@ const axios = require('axios');
 
 // ─── Config ──────────────────────────────────────────────
 const CFG = {
-  // e.g. https://yourdomain.com/api/order   (ask upstream for the real domain)
   baseUrl: (process.env.PG_BASE_URL || '').replace(/\/+$/, ''),
   merchantId: process.env.PG_MERCHANT_ID || '',
   secret: process.env.PG_SECRET_KEY || '',
   countryCode: process.env.PG_COUNTRY_CODE || 'NGN',
-  // Payment channel codes — MUST be supplied by the upstream provider.
   depositPayType: process.env.PG_DEPOSIT_PAYTYPE || '',
   withdrawPayType: process.env.PG_WITHDRAW_PAYTYPE || '',
-  // Public base URL of THIS backend, used to build callback URLs.
-  // e.g. https://api.jaksonsolar.com   ->  callback https://api.jaksonsolar.com/api/payment/deposit/callback
   callbackBaseUrl: (process.env.PG_CALLBACK_BASE_URL || process.env.PUBLIC_API_URL || '').replace(/\/+$/, ''),
 };
 

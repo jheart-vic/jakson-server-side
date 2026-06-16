@@ -176,6 +176,7 @@ const createWithdrawal = asyncHandler(async (req, res) => {
   });
 
   // Submit payout to the gateway
+// Submit payout to the gateway
   try {
     const result = await gateway.createPayoutOrder({
       merchantOrderId: withdrawal._id.toString(),
@@ -185,13 +186,15 @@ const createWithdrawal = asyncHandler(async (req, res) => {
       bnkCode,
       ip: clientIp(req),
     });
-    return sendError(res, `Withdrawal could not be processed: ${reason}`);
+
+    console.log('PAYOUT RESPONSE:', JSON.stringify(result.raw));
 
     if (!result.ok) {
       const reason = (result.raw && result.raw.msg) || 'Gateway rejected the payout';
       await refundWithdrawal(withdrawal, reason);
+      return sendError(res, `Withdrawal could not be processed: ${reason}`);
     }
-console.log('PAYOUT RESPONSE:', JSON.stringify(result.raw));   // <-- add this
+
     withdrawal.status = 'processing';
     await withdrawal.save();
   } catch (err) {

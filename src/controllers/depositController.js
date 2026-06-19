@@ -125,6 +125,7 @@ const createDeposit = asyncHandler(async (req, res) => {
 // @access  Public (signature-verified)
 const handleCollectionCallback = asyncHandler(async (req, res) => {
   const ok = gateway.verifyCallback(req.body, req.rawBody);
+ console.log('📥 COLLECTION CALLBACK from IP:', req.ip, 'XFF:', req.headers['x-forwarded-for'], 'body:', JSON.stringify(req.body));
   if (!ok) {
     console.warn('⚠️  Deposit callback signature verification FAILED', req.body);
     return res.status(400).send('sign error');

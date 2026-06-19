@@ -3,7 +3,8 @@ const mongoose = require('mongoose')
 const UserInvestment = require('../models/UserInvestment')
 const User           = require('../models/User')
 const AppSettings    = require('../models/AppSettings')
-const { notify }     = require('../utils/userNotify')
+const { notify }     = require('./userNotify')
+const { startReconcileCron } = require('./reconcilePayments')
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -297,6 +298,7 @@ const startDailyIncomeCron = () => {
 const startCrons = () => {
     startMidnightForfeitCron()
     startDailyIncomeCron()
+   startReconcileCron()
 }
 
 module.exports = {

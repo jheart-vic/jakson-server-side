@@ -235,6 +235,7 @@ const createWithdrawal = asyncHandler(async (req, res) => {
 // @access  Public (signature-verified)
 const handlePayoutCallback = asyncHandler(async (req, res) => {
   const ok = gateway.verifyCallback(req.body, req.rawBody);
+console.log('📥 PAYOUT CALLBACK from IP:', req.ip, 'XFF:', req.headers['x-forwarded-for'], 'body:', JSON.stringify(req.body));
   if (!ok) {
     console.warn('⚠️  Withdrawal callback signature verification FAILED', req.body);
     return res.status(400).send('sign error');
@@ -338,4 +339,6 @@ module.exports = {
   approveWithdrawal,
   rejectWithdrawal,
   getAllWithdrawals,
+ completeWithdrawalByDoc: completeWithdrawal,
+   refundWithdrawalByDoc: refundWithdrawal,
 };

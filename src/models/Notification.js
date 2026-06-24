@@ -7,7 +7,6 @@ const notificationSchema = new mongoose.Schema(
     type:    { type: String, enum: ['info', 'success', 'warning', 'bonus'], default: 'info' },
     bonusCode: { type: String, default: null, uppercase: true, trim: true },
     isActive:  { type: Boolean, default: true },
-    // null = never expires — admin must manually delete or deactivate
     // Only set if admin explicitly provides durationDays when creating
     expiresAt: { type: Date, default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

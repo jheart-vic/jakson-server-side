@@ -7,6 +7,10 @@ const Transaction = require('../models/Transaction')
 const AppSettings = require('../models/AppSettings')
 const { asyncHandler } = require('../middleware/errorHandler')
 const {
+    SECURITY_QUESTIONS,
+    getQuestionById,
+} = require('../utils/securityQuestions')
+const {
     sendSuccess,
     sendError,
     paginate,
@@ -842,6 +846,7 @@ const deleteWealthFund = asyncHandler(async (req, res) => {
 
 const BonusCode = require('../models/BonusCode')
 const crypto = require('crypto')
+const { createResetToken } = require('../utils/resetTokenStore')
 
 // Auto-generate a unique uppercase alphanumeric code
 const generateBonusCode = (length = 8) => {
@@ -938,7 +943,98 @@ const deleteBonusCode = asyncHandler(async (req, res) => {
     return sendSuccess(res, {}, 'Bonus code deleted')
 })
 
-// (Optional) Hard delete – if needed, but soft delete is safer
+// @desc    Get a user's security question and answer (admin only)
+// @route   GET /api/admin/users/:id/security
+// @access  Admin
+const getUserSecurity = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id).select(
+    '+securityQuestionId +securityAnswer'
+  )
+  if (!user) return sendError(res, 'User not found', 404)
+
+  const question = getQuestionById(user.securityQuestionId)
+
+  return sendSuccess(res, {
+    question:          question?.question ?? null,
+    hasSecurityAnswer: !!user.securityAnswer,
+  })
+})
+
+// @desc    Admin verifies a customer's spoken security answer
+// @route   POST /api/admin/users/:id/verify-security-answer
+// @access  Admin
+const adminVerifySecurityAnswer = asyncHandler(async (req, res) => {
+    const { securityAnswer } = req.body
+    if (!securityAnswer)
+        return sendError(res, 'Security answer is required')
+
+    const user = await User.findById(req.params.id).select(
+        '+securityQuestionId +securityAnswer'
+    )
+    if (!user) return sendError(res, 'User not found', 404)
+    if (!user.securityAnswer)
+        return sendError(res, 'This user has no security answer on file')
+
+    const isMatch = await user.compareSecurityAnswer(securityAnswer)
+    if (!isMatch)
+        return sendError(res, 'Security answer does not match', 401)
+
+    // Issue a short-lived reset token the admin can immediately use
+    const resetToken = createResetToken(user._id)
+
+    console.log(
+        `[ADMIN] Security answer verified for ${user.phone} by admin ${req.user._id}`
+    )
+
+    return sendSuccess(res, {
+        verified: true,
+        resetToken,   // pass this straight into adminResetUserPassword
+    }, 'Answer verified. Use the resetToken to reset the password.')
+})
+
+// @desc    Admin force-resets a user's password (bypasses security question)
+// @route   POST /api/admin/users/:id/reset-password
+// @access  Admin
+const adminResetUserPassword = asyncHandler(async (req, res) => {
+    const { newPassword, reason } = req.body
+
+    if (!newPassword || newPassword.length < 6)
+        return sendError(res, 'New password must be at least 6 characters')
+    if (!reason || reason.trim().length < 5)
+        return sendError(res, 'Please provide a reason for this password reset (audit purposes)')
+
+    const user = await User.findById(req.params.id)
+    if (!user) return sendError(res, 'User not found', 404)
+
+    user.password = newPassword
+    await user.save()
+
+    // Audit log
+    await Transaction.create({
+        user: user._id,
+        type: 'in',
+        category: 'refund', // reuse closest available category
+        amountUSD: 0,
+        description: `[ADMIN PASSWORD RESET] Reason: ${reason.trim()} — by admin ${req.user._id}`,
+    })
+
+    console.log(
+        `[ADMIN] Force password reset for ${user.phone} by admin ${req.user._id}. Reason: ${reason}`
+    )
+
+    notify(user._id, {
+        type: 'admin',
+        title: 'Password Reset',
+        body: 'Your login password has been reset by an administrator. Please contact support if you did not request this.',
+    }).catch(() => {})
+
+    return sendSuccess(
+        res,
+        { userId: user._id, phone: user.maskedPhone() },
+        `Password reset successfully for ${user.maskedPhone()}`
+    )
+})
+
 module.exports = {
     // Products
     createProduct,
@@ -970,4 +1066,8 @@ module.exports = {
     getAllBonusCodes,
     toggleBonusCode,
     deleteBonusCode,
+    // Security
+    getUserSecurity,
+    adminVerifySecurityAnswer,
+    adminResetUserPassword
 }

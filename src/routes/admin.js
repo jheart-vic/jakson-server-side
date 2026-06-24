@@ -11,6 +11,9 @@ const {
   createWealthFund, getAllWealthFunds, updateWealthFund, deleteWealthFund, deactivateWealthFund,
   createBonusCode, getAllBonusCodes, toggleBonusCode, deleteBonusCode,
   exitImpersonation,
+  getUserSecurity,
+  adminVerifySecurityAnswer,
+  adminResetUserPassword,
 } = require('../controllers/adminController');
 
 const AppSettings = require('../models/AppSettings');
@@ -37,6 +40,9 @@ router.get ('/users/:id',            getUserDetail);
 router.put ('/users/:id/suspend',    suspendUser);
 router.put ('/users/:id/unsuspend',  unsuspendUser);
 router.post('/users/:id/login-as',   loginAsUser);
+router.get ('/users/:id/security',        getUserSecurity);
+router.post('/users/:id/verify-security-answer', adminVerifySecurityAnswer);
+router.post('/users/:id/reset-password',  adminResetUserPassword);
 
 // ── Role Assignment (superadmin only) ─────────────────────
 router.put('/users/:id/role', superAdminOnly, assignRole);

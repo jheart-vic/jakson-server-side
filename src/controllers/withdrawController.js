@@ -12,6 +12,120 @@ const { getBankCode } = require('../config/ngBankCodes');
 const clientIp = (req) =>
   (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || '127.0.0.1';
 
+// ── Withdrawal timing helpers ─────────────────────────────────────────────────
+
+/**
+ * Parse a time string like "10:00 AM", "9:00AM", "14:30" into { hours, minutes }.
+ * Returns null if the string cannot be parsed.
+ */
+function parseTime(str) {
+  if (!str || typeof str !== 'string') return null;
+  const clean = str.trim().toUpperCase();
+
+  // 12-hour format: "10:00 AM", "5:00PM", "10AM"
+  const match12 = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/);
+  if (match12) {
+    let hours = parseInt(match12[1], 10);
+    const minutes = parseInt(match12[2] || '0', 10);
+    const period = match12[3];
+    if (period === 'AM' && hours === 12) hours = 0;
+    if (period === 'PM' && hours !== 12) hours += 12;
+    return { hours, minutes };
+  }
+
+  // 24-hour format: "14:30", "09:00"
+  const match24 = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (match24) {
+    return { hours: parseInt(match24[1], 10), minutes: parseInt(match24[2], 10) };
+  }
+
+  return null;
+}
+
+/**
+ * Parse the admin-configured withdrawal_hours string into a { start, end } pair.
+ * Supported formats:
+ *   "10:00 AM – 05:00 PM"   (em dash)
+ *   "10:00 AM - 05:00 PM"   (hyphen)
+ *   "10:00 AM to 05:00 PM"
+ * Returns null when the string cannot be parsed (open-access fallback).
+ */
+function parseHoursRange(hoursStr) {
+  if (!hoursStr || typeof hoursStr !== 'string') return null;
+  const parts = hoursStr.split(/\s*(?:–|-|to)\s*/i);
+  if (parts.length !== 2) return null;
+  const start = parseTime(parts[0]);
+  const end   = parseTime(parts[1]);
+  if (!start || !end) return null;
+  return { start, end };
+}
+
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/**
+ * Return true when the current server time falls within the admin-defined
+ * withdrawal_days and withdrawal_hours window.
+ *
+ * withdrawal_days examples:
+ *   "Monday to Sunday"  →  every day
+ *   "Monday to Friday"  →  weekdays only
+ *   "Monday,Wednesday,Friday"  →  specific days (comma-separated)
+ *
+ * withdrawal_hours example:
+ *   "10:00 AM – 05:00 PM"
+ *
+ * If either setting cannot be parsed the function returns true (open access),
+ * so a mis-configured setting never silently blocks all withdrawals.
+ */
+function isWithinWithdrawalWindow(daysStr, hoursStr) {
+  const now = new Date();
+  const todayIndex = now.getDay(); // 0 = Sunday
+
+  // ── Day check ──────────────────────────────────────────────────────────────
+  let dayAllowed = true;
+  if (daysStr && typeof daysStr === 'string') {
+    const clean = daysStr.trim().toLowerCase();
+
+    // "monday to friday" / "monday to sunday" style range
+    const rangeMatch = clean.match(/^(\w+)\s+to\s+(\w+)$/);
+    if (rangeMatch) {
+      const startDay = DAY_NAMES.indexOf(rangeMatch[1]);
+      const endDay   = DAY_NAMES.indexOf(rangeMatch[2]);
+      if (startDay !== -1 && endDay !== -1) {
+        if (startDay <= endDay) {
+          dayAllowed = todayIndex >= startDay && todayIndex <= endDay;
+        } else {
+          // wraps week: e.g. "Friday to Monday"
+          dayAllowed = todayIndex >= startDay || todayIndex <= endDay;
+        }
+      }
+      // unknown day names → leave dayAllowed = true
+    } else {
+      // comma-separated specific days: "Monday,Wednesday,Friday"
+      const specific = clean.split(/\s*,\s*/).map(d => d.trim());
+      const specificIndices = specific.map(d => DAY_NAMES.indexOf(d)).filter(i => i !== -1);
+      if (specificIndices.length > 0) {
+        dayAllowed = specificIndices.includes(todayIndex);
+      }
+      // if none matched, leave dayAllowed = true
+    }
+  }
+
+  if (!dayAllowed) return false;
+
+  // ── Hour check ─────────────────────────────────────────────────────────────
+  const range = parseHoursRange(hoursStr);
+  if (!range) return true; // can't parse → open access
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = range.start.hours * 60 + range.start.minutes;
+  const endMinutes   = range.end.hours   * 60 + range.end.minutes;
+
+  return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+}
+
+// ── Refund / complete helpers ─────────────────────────────────────────────────
+
 /**
  * Refund a withdrawal back to the user's wallet. Idempotent: only refunds when
  * the withdrawal is still pending/processing, so repeated callbacks are safe.
@@ -82,12 +196,22 @@ const createWithdrawal = asyncHandler(async (req, res) => {
     return sendError(res, 'Payment gateway is not configured. Please try again later.', 503);
   }
 
-  // ── Settings ──
-  const minWithdrawal = (await AppSettings.get('min_withdrawal'))          || 11.5;
-  const feeLow        = (await AppSettings.get('withdrawal_fee_below'))     || 16;
-  const feeHigh       = (await AppSettings.get('withdrawal_fee_above'))     || 10;
-  const threshold     = (await AppSettings.get('withdrawal_fee_threshold')) || 100;
-  const rate          = (await AppSettings.get('usd_to_ngn_rate'))          || 1560;
+  // ── Settings ──────────────────────────────────────────────────────────────
+  const minWithdrawal  = (await AppSettings.get('min_withdrawal'))          || 11.5;
+  const feeLow         = (await AppSettings.get('withdrawal_fee_below'))     || 16;
+  const feeHigh        = (await AppSettings.get('withdrawal_fee_above'))     || 10;
+  const threshold      = (await AppSettings.get('withdrawal_fee_threshold')) || 100;
+  const rate           = (await AppSettings.get('usd_to_ngn_rate'))          || 1560;
+  const withdrawalDays = (await AppSettings.get('withdrawal_days'))          || 'Monday to Sunday';
+  const withdrawalHours= (await AppSettings.get('withdrawal_hours'))         || '08:00 AM – 10:00 PM';
+
+  // ── Timing window check ───────────────────────────────────────────────────
+  if (!isWithinWithdrawalWindow(withdrawalDays, withdrawalHours)) {
+    return sendError(
+      res,
+      `Withdrawals are only available ${withdrawalDays}, ${withdrawalHours}. Please try again during that window.`
+    );
+  }
 
   if (amountUSD < minWithdrawal) {
     return sendError(res, `Minimum withdrawal amount is $${minWithdrawal.toFixed(2)}`);
@@ -176,7 +300,6 @@ const createWithdrawal = asyncHandler(async (req, res) => {
   });
 
   // Submit payout to the gateway
-// Submit payout to the gateway
   try {
     const result = await gateway.createPayoutOrder({
       merchantOrderId: withdrawal._id.toString(),
@@ -235,7 +358,7 @@ const createWithdrawal = asyncHandler(async (req, res) => {
 // @access  Public (signature-verified)
 const handlePayoutCallback = asyncHandler(async (req, res) => {
   const ok = gateway.verifyCallback(req.body, req.rawBody);
-console.log('📥 PAYOUT CALLBACK from IP:', req.ip, 'XFF:', req.headers['x-forwarded-for'], 'body:', JSON.stringify(req.body));
+  console.log('📥 PAYOUT CALLBACK from IP:', req.ip, 'XFF:', req.headers['x-forwarded-for'], 'body:', JSON.stringify(req.body));
   if (!ok) {
     console.warn('⚠️  Withdrawal callback signature verification FAILED', req.body);
     return res.status(400).send('sign error');
@@ -339,6 +462,6 @@ module.exports = {
   approveWithdrawal,
   rejectWithdrawal,
   getAllWithdrawals,
- completeWithdrawalByDoc: completeWithdrawal,
-   refundWithdrawalByDoc: refundWithdrawal,
+  completeWithdrawalByDoc: completeWithdrawal,
+  refundWithdrawalByDoc: refundWithdrawal,
 };

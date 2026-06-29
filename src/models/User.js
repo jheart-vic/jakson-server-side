@@ -6,8 +6,8 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, required: true, unique: true, trim: true },
     countryCode: { type: String, default: '+234' },
     // ── Identity ──────────────────────────────────────────
-    fullName: { type: String, default: null, trim: true },
-    userName: { type: String, default: null, trim: true, unique: true, sparse: true },
+    fullName: { type: String, default: undefined, trim: true },
+    userName: { type: String, trim: true, unique: true, sparse: true },
     // ── Auth ──────────────────────────────────────────────
     password:         { type: String, required: true, minlength: 6, select: false },
     withdrawPassword: { type: String, minlength: 6, select: false },

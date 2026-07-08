@@ -30,6 +30,8 @@ const setAuthCookies = (res, userId) => {
     // 'none' requires secure:true (HTTPS only).
     // In dev secure=false so we must use 'lax' — otherwise browser rejects the cookie.
     sameSite: isProd() ? 'none' : 'lax',
+domain: isProd() ? '.mylmenergy.com' : undefined,
+    path:     '/',
   }
 
   // Access token — 1 hour
@@ -49,7 +51,7 @@ const setAuthCookies = (res, userId) => {
 }
 
 const clearAuthCookies = (res) => {
-  const base = { httpOnly: true, secure: isProd(), sameSite: isProd() ? 'none' : 'lax' }
+  const base = { httpOnly: true, secure: isProd(), sameSite: isProd() ? 'none' : 'lax', path: '/' }
   res.clearCookie('access_token', base)
   res.clearCookie('refresh_token', { ...base, path: '/api/auth/refresh' })
 }

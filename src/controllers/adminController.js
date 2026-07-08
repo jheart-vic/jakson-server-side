@@ -405,6 +405,8 @@ const loginAsUser = asyncHandler(async (req, res) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        domain: isProd() ? '.mylmenergy.com' : undefined,
+        path: '/',
         maxAge: 2 * 60 * 60 * 1000, // 2 h — matches token expiry
     })
 
@@ -449,6 +451,8 @@ const exitImpersonation = asyncHandler(async (req, res) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        domain: isProd() ? '.mylmenergy.com' : undefined,
+        path: '/',
         maxAge: 7 * 24 * 60 * 60 * 1000,
     })
 
@@ -947,17 +951,17 @@ const deleteBonusCode = asyncHandler(async (req, res) => {
 // @route   GET /api/admin/users/:id/security
 // @access  Admin
 const getUserSecurity = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.params.id).select(
-    '+securityQuestionId +securityAnswer'
-  )
-  if (!user) return sendError(res, 'User not found', 404)
+    const user = await User.findById(req.params.id).select(
+        '+securityQuestionId +securityAnswer',
+    )
+    if (!user) return sendError(res, 'User not found', 404)
 
-  const question = getQuestionById(user.securityQuestionId)
+    const question = getQuestionById(user.securityQuestionId)
 
-  return sendSuccess(res, {
-    question:          question?.question ?? null,
-    hasSecurityAnswer: !!user.securityAnswer,
-  })
+    return sendSuccess(res, {
+        question: question?.question ?? null,
+        hasSecurityAnswer: !!user.securityAnswer,
+    })
 })
 
 // @desc    Admin verifies a customer's spoken security answer
@@ -965,31 +969,33 @@ const getUserSecurity = asyncHandler(async (req, res) => {
 // @access  Admin
 const adminVerifySecurityAnswer = asyncHandler(async (req, res) => {
     const { securityAnswer } = req.body
-    if (!securityAnswer)
-        return sendError(res, 'Security answer is required')
+    if (!securityAnswer) return sendError(res, 'Security answer is required')
 
     const user = await User.findById(req.params.id).select(
-        '+securityQuestionId +securityAnswer'
+        '+securityQuestionId +securityAnswer',
     )
     if (!user) return sendError(res, 'User not found', 404)
     if (!user.securityAnswer)
         return sendError(res, 'This user has no security answer on file')
 
     const isMatch = await user.compareSecurityAnswer(securityAnswer)
-    if (!isMatch)
-        return sendError(res, 'Security answer does not match', 401)
+    if (!isMatch) return sendError(res, 'Security answer does not match', 401)
 
     // Issue a short-lived reset token the admin can immediately use
     const resetToken = createResetToken(user._id)
 
     console.log(
-        `[ADMIN] Security answer verified for ${user.phone} by admin ${req.user._id}`
+        `[ADMIN] Security answer verified for ${user.phone} by admin ${req.user._id}`,
     )
 
-    return sendSuccess(res, {
-        verified: true,
-        resetToken,   // pass this straight into adminResetUserPassword
-    }, 'Answer verified. Use the resetToken to reset the password.')
+    return sendSuccess(
+        res,
+        {
+            verified: true,
+            resetToken, // pass this straight into adminResetUserPassword
+        },
+        'Answer verified. Use the resetToken to reset the password.',
+    )
 })
 
 // @desc    Admin force-resets a user's password (bypasses security question)
@@ -1001,7 +1007,10 @@ const adminResetUserPassword = asyncHandler(async (req, res) => {
     if (!newPassword || newPassword.length < 6)
         return sendError(res, 'New password must be at least 6 characters')
     if (!reason || reason.trim().length < 5)
-        return sendError(res, 'Please provide a reason for this password reset (audit purposes)')
+        return sendError(
+            res,
+            'Please provide a reason for this password reset (audit purposes)',
+        )
 
     const user = await User.findById(req.params.id)
     if (!user) return sendError(res, 'User not found', 404)
@@ -1019,7 +1028,7 @@ const adminResetUserPassword = asyncHandler(async (req, res) => {
     })
 
     console.log(
-        `[ADMIN] Force password reset for ${user.phone} by admin ${req.user._id}. Reason: ${reason}`
+        `[ADMIN] Force password reset for ${user.phone} by admin ${req.user._id}. Reason: ${reason}`,
     )
 
     notify(user._id, {
@@ -1031,7 +1040,7 @@ const adminResetUserPassword = asyncHandler(async (req, res) => {
     return sendSuccess(
         res,
         { userId: user._id, phone: user.maskedPhone() },
-        `Password reset successfully for ${user.maskedPhone()}`
+        `Password reset successfully for ${user.maskedPhone()}`,
     )
 })
 
@@ -1069,5 +1078,5 @@ module.exports = {
     // Security
     getUserSecurity,
     adminVerifySecurityAnswer,
-    adminResetUserPassword
+    adminResetUserPassword,
 }

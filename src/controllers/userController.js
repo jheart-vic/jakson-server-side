@@ -57,6 +57,35 @@ const bindBankAccount = asyncHandler(async (req, res) => {
     return sendSuccess(res, { account }, 'Bank account bound successfully', 201)
 })
 
+// @desc    Delete a bound bank account
+// @route   DELETE /api/bank/accounts/:id
+// @access  Private
+const deleteBankAccount = asyncHandler(async (req, res) => {
+    const { id } = req.params
+
+    // Only find accounts belonging to the requesting user (prevents deleting others')
+    const account = await BankAccount.findOne({ _id: id, user: req.user._id })
+    if (!account) {
+        return sendError(res, 'Bank account not found', 404)
+    }
+
+    const wasDefault = account.isDefault
+    await account.deleteOne()
+
+    // If we removed the default, promote the most recent remaining account
+    if (wasDefault) {
+        const next = await BankAccount.findOne({ user: req.user._id }).sort({
+            createdAt: -1,
+        })
+        if (next) {
+            next.isDefault = true
+            await next.save()
+        }
+    }
+
+    return sendSuccess(res, { deletedId: id }, 'Bank account removed successfully')
+})
+
 // ─────────────────────────────────────────
 // WALLET / TRANSACTIONS
 // ─────────────────────────────────────────
@@ -128,7 +157,7 @@ const getTeamStats = asyncHandler(async (req, res) => {
     }).select('_id')
 
     return sendSuccess(res, {
-        inviteLink: `${process.env.FRONTEND_URL}/register?c=${req.user.referralCode}`,
+        inviteLink: `${process.env.FRONTEND_URL}/register?ref=${req.user.referralCode}`,
         referralCode: req.user.referralCode,
         totalEarnings: req.user.totalEarnings,
         todayEarnings: req.user.todayEarnings,
@@ -422,6 +451,7 @@ module.exports = {
     claimDailyIncome,
     getBankAccounts,
     getBankList,
+    deleteBankAccount,
     bindBankAccount,
     getBalance,
     getTransactions,

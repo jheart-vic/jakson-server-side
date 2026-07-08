@@ -11,6 +11,7 @@ const {
   getTierMembers,
   redeemCode,
   dailyCheckin,
+  deleteBankAccount,
 } = require('../controllers/userController');
 const{
   getUserNotifications,
@@ -29,6 +30,7 @@ router.get('/wallet/transactions', protect, getTransactions);
 router.get ('/bank/list',     protect, getBankList);
 router.get ('/bank/accounts', protect, getBankAccounts);
 router.post('/bank/bind',     protect, bindBankAccount);
+router.delete('/bank/accounts/:id', protect, deleteBankAccount);
 
 // ── Team / Referral ───────────────────────────────────────
 router.get('/team/stats',          protect, getTeamStats);
